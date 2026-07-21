@@ -380,21 +380,45 @@ run_scenario("i++ standalone              + ;",
               "i++;")
 
 -- =============================================================
--- Double Enter: press Enter twice rapidly.  The reentrancy guard
--- (`state.applying`) must prevent an insertion loop.  After the
--- first Enter, `;` is added; the second Enter must NOT add another.
+-- Double Enter, real reentrancy: insert first blank → main() →
+-- insert second blank → main().  The first main() sets
+-- `state.applying = true` (and schedules a deferred reset).
+-- The second main() must return immediately because `applying`
+-- is still true, preventing an insertion loop.  After both calls
+-- the line must have exactly ONE `;`.
 -- =============================================================
-run_multi("double Enter  no loop",
-  {
-    "int x",
-  },
-  { { 1, "" }, { 1, "" } },  -- two blanks at same position (simulates double Enter)
-  2,                            -- cursor on first blank
-  {
-    "int x;",                     -- got ; once
-    "",                            -- first blank
-    "",                            -- second blank (pushed down)
-  })
+do
+  local name = "double Enter  reentrancy guard"
+  vim.cmd("enew!")
+  local b = vim.api.nvim_get_current_buf()
+  vim.bo[b].filetype = "c"
+  vim.api.nvim_set_option_value("modifiable", true, { buf = b })
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, { "int x" })
+  main_mod.attach(b, "c")                       -- last_line_count = 1
+
+  -- First Enter: insert a blank below, call main().
+  vim.api.nvim_buf_set_lines(b, 1, 1, false, { "" })
+  pcall(vim.api.nvim_win_set_cursor, 0, { 2, 0 })
+  main_mod.main(b)                              -- adds ;, sets applying = true
+
+  -- Second Enter (before the deferred reset fires): insert another blank.
+  vim.api.nvim_buf_set_lines(b, 2, 2, false, { "" })
+  pcall(vim.api.nvim_win_set_cursor, 0, { 3, 0 })
+  main_mod.main(b)                              -- must be a no-op (applying guard)
+
+  main_mod.detach(b)
+  local got = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+  local want = { "int x;", "", "" }
+  local same = true
+  for i = 1, 3 do
+    if got[i] ~= want[i] then
+      same = false
+      print(string.format("    line %d mismatch: got=%q want=%q", i, got[i] or "<missing>", want[i]))
+    end
+  end
+  if same then pass = pass + 1 else fail = fail + 1 end
+  print(string.format("  %-50s %s", name, same and "PASS" or "FAIL"))
+end
 
 -- =============================================================
 -- Trailing whitespace: `int x   ` with trailing spaces should
