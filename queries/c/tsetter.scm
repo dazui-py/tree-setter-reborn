@@ -96,8 +96,17 @@
 ;; ----------------
 ;; Query for case statements like
 ;;      case 1
+;;
+;; Tree-sitter may wrap an incomplete case inside an ERROR node when the
+;; enclosing switch block is unclosed, so we need both forms.
 ((case_statement
     value: (_)
+) @double_points)
+
+((ERROR
+    (case_statement
+        value: (_)
+    )
 ) @double_points)
 
 ;; -----------

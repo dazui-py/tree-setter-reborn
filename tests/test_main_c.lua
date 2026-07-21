@@ -12,6 +12,10 @@
 vim.defer_fn(function() vim.cmd("qa!") end, 8000)
 pcall(vim.treesitter.language.add, "c")
 
+-- The case-statement test expects a specific deeper-indent width.
+-- Pin shiftwidth so the expected value is deterministic.
+vim.o.shiftwidth = 4
+
 -- Make sure the local repo (not a stale install) is loaded.
 for k, _ in pairs(package.loaded) do
    if k:match("^tree%-setter") then package.loaded[k] = nil end
@@ -332,6 +336,130 @@ run_multi("struct member decl            + ; on field",
 run_scenario('printf("sum: %d", a, b)   + ;',
               'printf("sum: %d", a, b)',
               'printf("sum: %d", a, b);')
+
+print()
+print("[C edge cases -- setter guards & reentrancy]")
+
+-- =============================================================
+-- Already-terminated line: a line that already ends with `;`
+-- must NOT get a double semicolon when Enter is pressed after it.
+-- Tests the setter's `trimmed:sub(-1) == character` guard.
+-- =============================================================
+run_multi("already has ;  no double ;;",
+  {
+    "int x;",
+  },
+  { { 1, "" } },           -- Enter after `int x;` (insert blank at 0-based row 1)
+  2,                        -- cursor on 1-based line 2 (the post-Enter blank)
+  {
+    "int x;",                -- unchanged: no double ;;
+    "",                       -- the post-Enter blank
+  })
+
+-- =============================================================
+-- Update expression `i++`: tree-sitter captures the `i++` argument
+-- whose next-character is `)`.  The setter's inside-paren guard must
+-- skip the insertion, otherwise `i++;)` corrupts the for-loop.
+-- =============================================================
+run_multi("i++  inside for  skip ;",
+  {
+    "for (int i = 0; i < 10; i++)",
+  },
+  { { 1, "" } },
+  2,
+  {
+    "for (int i = 0; i < 10; i++)",  -- unchanged
+    "",
+  })
+
+-- =============================================================
+-- Update expression on its own line (standalone `i++`): should get `;`.
+-- =============================================================
+run_scenario("i++ standalone              + ;",
+              "i++",
+              "i++;")
+
+-- =============================================================
+-- Double Enter: press Enter twice rapidly.  The reentrancy guard
+-- (`state.applying`) must prevent an insertion loop.  After the
+-- first Enter, `;` is added; the second Enter must NOT add another.
+-- =============================================================
+run_multi("double Enter  no loop",
+  {
+    "int x",
+  },
+  { { 1, "" }, { 1, "" } },  -- two blanks at same position (simulates double Enter)
+  2,                            -- cursor on first blank
+  {
+    "int x;",                     -- got ; once
+    "",                            -- first blank
+    "",                            -- second blank (pushed down)
+  })
+
+-- =============================================================
+-- Trailing whitespace: `int x   ` with trailing spaces should
+-- still get `;`.  The setter strips trailing whitespace for the
+-- guard check but inserts at #line (end of line), so `;` goes
+-- after the spaces.
+-- =============================================================
+run_scenario("trailing spaces             + ;",
+              "int x   ",
+              "int x   ;")
+
+print()
+print("[C edge cases -- special types & macros]")
+
+-- `long x` is captured by the `sized_type_specifier` query.
+run_scenario("long x                      + ;",
+              "long x",
+              "long x;")
+
+-- `unsigned int x` is a declaration with a sized_type_specifier type.
+run_scenario("unsigned int x              + ;",
+              "unsigned int x",
+              "unsigned int x;")
+
+-- `free(ptr)` is captured by the expression_statement > call_expression query.
+run_scenario("free(ptr)                   + ;",
+              "free(ptr)",
+              "free(ptr);")
+
+-- `break` without semicolon: tree-sitter sees it as ERROR containing "break".
+run_scenario("break                       + ;",
+              "break",
+              "break;")
+
+print()
+print("[C edge cases -- case statement & buffer isolation]")
+
+-- =============================================================
+-- Case statement: `case 1` should get `:` (double_points), not `;`.
+-- The setter's `:` path does a 2-row set_lines for the deeper indent.
+-- =============================================================
+run_multi("case 1  -> case 1:",
+  {
+    "switch(x) {",
+    "    case 1",
+    "}",
+  },
+  { { 2, "" } },           -- Enter after `case 1` (insert blank at 0-based row 2)
+  3,                        -- cursor on 1-based line 3 = post-Enter blank
+  {
+    "switch(x) {",
+    "    case 1:",            -- should get : (not ;)
+    "        ",               -- deeper-indented blank (shiftwidth=4 here)
+    "}",
+  })
+
+-- =============================================================
+-- Row scoping: two adjacent declarations.  Only the line above
+-- the cursor gets annotated; the other is outside the row window.
+-- =============================================================
+run_multi("adjacent decls  only cursor-row gets ;",
+  { "int x", "int y" },
+  { { 1, "" } },      -- Enter after "int x"
+  2,
+  { "int x;", "", "int y" })
 
 print()
 print(string.format("RESULT pass=%d fail=%d", pass, fail))
