@@ -26,18 +26,20 @@ With [vim-plug](https://github.com/junegunn/vim-plug):
 Plug 'TornaxO7/tree-setter'
 ```
 
-Add this into your `treesitter`-settings:
+Then enable it once (for example in your `init.lua`):
 ```lua
-require('nvim-treesitter.configs').setup {
-    -- your other modules ...
-
-    tree_setter = {
-        enable = true
-    },
-
-    -- your other modules ...
-}
+require("tree-setter").setup()
 ```
+
+That's it! tree-setter now uses Neovim's **native treesitter API** (`vim.treesitter`),
+so it no longer depends on the `nvim-treesitter` module framework. It only needs
+the treesitter parser for your language to be installed (e.g. via
+[`nvim-treesitter`](https://github.com/nvim-treesitter/nvim-treesitter) or the
+bundled parsers) and a `queries/<lang>/tsetter.scm` file to exist. Languages
+without such a query file are simply ignored.
+
+> **Note:** requires a recent Neovim with the native treesitter API
+> (`vim.treesitter.query.get`, `vim.treesitter.get_node`, ...).
 
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)
