@@ -50,52 +50,56 @@ function Setter.set_character(bufnr, line_num, end_column, character)
         indent_fix = indent_fix .. (' '):rep(vim.o.shiftwidth)
     end
 
-    -- get the last character to know if there's already the needed
-    -- character or not
-    local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
-    -- in this part, we're looking at the certain index where the
-    -- semicolon/comma/... should be, for example if there's already one.
-    -- We have two cases which for the following two example cases
+    -- get the line where the character should (maybe) be added.
+    local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1] or ""
+
+    -- `end_column` is tree-sitter's *end-exclusive*, 0-based column of the
+    -- captured node, i.e. it points right *after* the node's last character.
+    -- Our punctuation (`;`/`,`/`:`) belongs exactly at that spot. In Lua's
+    -- 1-based string indexing the character sitting in that spot is at index
+    -- `end_column + 1`.
     --
-    --  1. example case:
+    -- We use TWO independent guards against mis-insertion:
     --
-    --      for (int a = 0; a < 10; a++)
+    --  1. **Already-terminated** (defensive, line-level): if the user's line
+    --     ALREADY ends with the character we want to insert (modulo trailing
+    --     whitespace), do nothing. This matters because our C / Lua queries
+    --     capture *whole-statement* nodes (e.g. `expression_statement`,
+    --     `return_statement`) whose tree-sitter range already INCLUDES the
+    --     existing terminator.  When the dispatcher picks such a node,
+    --     `end_column` can be *past* the `;` -- the old "next character ==
+    --     wanted character" check then saw an empty string and decided to
+    --     insert another `;`, producing `return 0;;` and other corrupting
+    --     edits.  The line-level trimmed-ends-with guard catches this case
+    --     regardless of where exactly `end_column` lands.
     --
-    --  2. example case:
-    --      
-    --      int a
+    --  2. **Inside parentheses** (positional, the for-loop case): if the
+    --     character directly after the captured node is `)`, do nothing. The
+    --     captured `i++` in `for (int i = 0; i < 10; i++)` falls here, and
+    --     adding a `;` would corrupt a complete statement.
     --
-    local wanted_character
-    if end_column + 1 < line:len() then
-        -- This is for case 1.
-        -- First sub:
-        --      Go to the part of the query
-        -- Second sub:
-        --      Pick up the last character of the query
-        wanted_character = line:sub(end_column, end_column + 1):sub(-1)
-    else
-        -- In this case the query is the has the last part of the line as well
-        -- so we can just pick up the last character of the whole line (see
-        -- example case 2)
-        wanted_character = line:sub(-1)
+    --  Note (1) is line-level so legitimate statements that simply end with a
+    --  `)` -- like `printf("hello")` or `my_func()` -- still receive their `;`,
+    --  because their LINE doesn't end with `;` even though the captured
+    --  `call_expression` does not span the closing `)`.
+    local next_character = line:sub(end_column + 1, end_column + 1)
+
+    local trimmed = line:gsub("%s+$", "")
+    if trimmed:sub(-1) == character then
+        -- Line already terminates correctly.  Nothing to do.
+        return
     end
 
-    -- is our character already placed? If not => Place it!
-    --
-    -- The second condition is used, to check cases like this:
-    --
-
-    --      for (int var = 0; var < 10; var++)
-    --
-    --  Without the second condition, we'd let `var++` enter this condition,
-    --  which would add a semicolon after the `)`.
-    if (wanted_character ~= character) and (wanted_character ~= ')') then
-        -- we need the "+ 2" here, because:
-        --  1. The column-index is *exclusive* => + 1
-        --  2. We need to set even the next line with our new indentation => + 1
-        vim.api.nvim_buf_set_lines(bufnr, line_num, line_num + 2, false,
-                                   {line .. character, indent_fix})
+    if next_character == ')' then
+        -- Captured node lives inside a closing paren (e.g. `i++` in a for-loop).
+        return
     end
+
+    -- we need the "+ 2" here, because:
+    --  1. The column-index is *exclusive* => + 1
+    --  2. We need to set even the next line with our new indentation => + 1
+    vim.api.nvim_buf_set_lines(bufnr, line_num, line_num + 2, false,
+                               {line .. character, indent_fix})
 end
 
 return Setter

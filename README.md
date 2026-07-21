@@ -26,6 +26,12 @@ With [vim-plug](https://github.com/junegunn/vim-plug):
 Plug 'TornaxO7/tree-setter'
 ```
 
+Or with [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{ "TornaxO7/tree-setter", opts = {} }
+```
+
 Then enable it once (for example in your `init.lua`):
 ```lua
 require("tree-setter").setup()
@@ -40,6 +46,27 @@ without such a query file are simply ignored.
 
 > **Note:** requires a recent Neovim with the native treesitter API
 > (`vim.treesitter.query.get`, `vim.treesitter.get_node`, ...).
+
+### Developing / hacking-tree-setter tip
+
+When you want your changes in this repository to be the ones Neovim *actually*
+runs, install the plugin as a symlink into one of Neovim's auto-loaded
+locations so it isn't shadowed by a stale copy shipped through your plugin
+manager. The cleanest way is:
+
+```bash
+# Remove any pre-existing install (avoid an OLD copy of this plugin shadowing
+# your edits -- this was a real bug that took an afternoon to track down).
+rm -rf ~/.local/share/nvim/site/pack/*/start/tree-setter-reborn
+rm -rf ~/.local/share/nvim/site/pack/*/opt/tree-setter-reborn
+
+# Symlink your working clone into the auto-load `start/` directory.
+mkdir -p ~/.local/share/nvim/site/pack/core/start
+ln -s "$PWD" ~/.local/share/nvim/site/pack/core/start/tree-setter-reborn
+```
+
+After this, edits in this directory are picked up the moment you restart
+Neovim -- no copying back into a checkout, no `packadd` incantation.
 
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)

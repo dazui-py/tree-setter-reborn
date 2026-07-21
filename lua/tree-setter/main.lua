@@ -20,10 +20,15 @@ local TreeSetter = {}
 -- `states[bufnr]` looks like this:
 --      {
 --          query = <the tsetter query for this buffer's language>,
---          -- the last line num where the cursor was. It's mainly used as a
---          -- control variable to check if the cursor moved down or not (see
---          -- `TreeSetter.main`).
---          last_line_num = <number>,
+--          -- the number of lines the buffer had after we last processed a
+--          -- change. It's used to detect whether the *user* inserted a new
+--          -- line (i.e. pressed enter / opened a line) since the last text
+--          -- change (see `TreeSetter.main`).
+--          last_line_count = <number>,
+--          -- reentrancy guard: while we are applying our own edit we mustn't
+--          -- react to the `TextChangedI` event it triggers, otherwise we'd
+--          -- risk an insertion loop.
+--          applying = <boolean>,
 --      }
 local states = {}
 
@@ -40,89 +45,202 @@ function TreeSetter.add_character(bufnr, state)
     end
     parser:parse()
 
-    -- get the relevant nodes to be able to judge the current case (if we need
-    -- to add a semicolon/comma/... or not).
+    -- Use the parse-tree ROOT for iter_matches, NOT the cursor's
+    -- smallest-leaf's parent.  If we use the latter, iter_matches
+    -- searches only inside that tiny subtree -- e.g. when the cursor
+    -- sits inside `int d`, the parent is the `int d` declarator and
+    -- captures on `int a/b/c` twenty rows above are simply invisible.
+    -- The actual row scoping happens in `apply()` (post-filter on
+    -- node:range() row values), so we WANT iter_matches to see the
+    -- whole file and let the post-filter decide.
     --
-    -- We intentionally don't pass a `bufnr` here: `get_node` then defaults to
-    -- the current buffer and uses the window-local cursor position. Since the
-    -- `CursorMovedI` autocommand is buffer-local, the buffer we were attached
-    -- to is guaranteed to be the current one at this point.
-    local curr_node = vim.treesitter.get_node()
-    if not curr_node then
+    -- Calling `iter_matches(root_node, bufnr)` with the 2-arg form
+    -- defaults to `root_node:range()` for start/stop, which is the
+    -- cleanest "search the whole buffer" ask.
+    local tree = parser:parse()[1]
+    if not tree then
+        return
+    end
+    local root_node = tree:root()
+    if not root_node then
         return
     end
 
-    local parent_node = curr_node:parent()
-    if not parent_node then
-        parent_node = curr_node
-    end
-
-    -- Reduce the searching-range on the size of the parent node (and not the
-    -- whole buffer)
-    local start_row, _, end_row, _ = parent_node:range()
-    -- since the end row is end-*exclusive*, we have to increase the end row by
-    -- one
-    end_row = end_row + 1
-
     local query = state.query
 
-    -- iterate through all matched queries from the given range.
+    -- iterate through all matched queries, then dispatch the most-derived
+    -- match per character_type.
     --
     -- Note: with the native treesitter API, `match` maps each capture id to a
     -- *list* of nodes (`table<integer, TSNode[]>`), so we have to iterate over
     -- the inner list as well.
-    for _, match, _ in query:iter_matches(parent_node, bufnr, start_row, end_row) do
-        for id, nodes in pairs(match) do
-            for _, node in ipairs(nodes) do
+    --
+    -- Why "most-derived" instead of "first hit": `pairs(match)` is unordered
+    -- -- if we returned after the first match we'd insert a `,` on a random
+    -- field of a multi-field table constructor, not on the last one above
+    -- the cursor.  The same hazard exists for any future capture that fires
+    -- on more than one node per range.  We therefore collect ALL matches,
+    -- then pick the bottommost (largest (end_row, end_col)) per capture-
+    -- type, so a single Enter always produces exactly one edit on the line
+    -- right above the cursor.
+    --
+    -- `@skip` keeps its early-return semantics so a skip inside the
+    -- range always wins.
+    local best_for_type = {}  -- capture_name -> {node, end_row, end_col}
 
-                -- get the "coordinations" of our current line, where we have to
-                -- lookup if we should add a semicolon or not.
-                local char_start_row, _, _, char_end_column = node:range()
+    -- `match[id]` can be a single TSNode (newer nvim) OR a list of TSNodes
+    -- (older nvim).  We dispatch both shapes to a uniform `process(node)`
+    -- closure so we don't crash on either build.
+    for _, match, _ in query:iter_matches(root_node, bufnr) do
+        for id, captured in pairs(match) do
+            local function process(node)
+                local start_row, _, end_row, end_col = node:range()
+                local capture_name = query.captures[id]
 
-                -- get the type of character which we should add.
-                -- So for example if we have "@semicolon" in our query, than
-                -- "character_type" will be "semicolon", so we know that there
-                -- should be a semicolon at the end of the line
-                local character_type = query.captures[id]
-
-                -- so look first, if we reached an "exception" which have the
-                -- "@skip" predicate.
-                if character_type == "skip" then
-                    return
+                -- PRIMARY ROW FILTER (must be BEFORE the @skip check).
+                --
+                -- Only consider captures whose range overlaps the user's
+                -- pre-Enter row ± 1 window.  Putting this filter first
+                -- is critical: an `if (x) {` on row 5 must NOT short-
+                -- circuit the plugin when the user is editing something
+                -- 10 rows below.  Earlier versions of this code put
+                -- `@skip` first, which made any skip anywhere in the
+                -- buffer abort annotation globally -- the user's bug 2
+                -- "cursor far below an if with unterminated printf"
+                -- exposed this.
+                --
+                -- Also keeps bottommost-wins competition ENTER-WINDOW
+                -- ONLY: an out-of-window `int e` cannot out-rank an in-
+                -- window `int c` for the @semicolon slot in
+                -- `best_for_type`.
+                --
+                -- `state.last_line_count` at this point is the line
+                -- count BEFORE the user's last Enter (the post-edit
+                -- `vim.schedule(...)` callback updates it AFTER
+                -- `add_character` returns), so `state.last_line_count
+                -- - 1` is the 0-based row of the line the user just
+                -- blanked out.
+                local user_row = state.last_line_count - 1
+                if end_row < user_row - 1 or start_row > user_row then
+                    return  -- out of window; silent nil (NOT "skip")
                 end
 
-                -- Add the given character to the given line
-                if character_type == 'semicolon' then
-                    setter.set_character(bufnr, char_start_row, char_end_column, ';')
-                elseif character_type == 'comma' then
-                    setter.set_character(bufnr, char_start_row, char_end_column, ',')
-                elseif character_type == 'double_points' then
-                    setter.set_character(bufnr, char_start_row, char_end_column, ':')
+                -- `@skip` beats every other match -- but only for
+                -- in-window captures, thanks to the filter above.
+                if capture_name == "skip" then
+                    return "skip"  -- sentinel that short-circuits the outer loops
+                end
+
+                -- Among same-name captures, keep the one furthest down (or
+                -- rightmost on the same row).  Tuple comparison so nodes on
+                -- different rows are ranked by row first, col second.
+                local cur = best_for_type[capture_name]
+                if not cur then
+                    best_for_type[capture_name] = { node = node, end_row = end_row, end_col = end_col }
+                elseif end_row > cur.end_row or (end_row == cur.end_row and end_col > cur.end_col) then
+                    best_for_type[capture_name] = { node = node, end_row = end_row, end_col = end_col }
                 end
             end
+
+            if type(captured) == "userdata" then
+                -- Modern nvim: match[id] is a single TSNode.
+                if process(captured) == "skip" then return end
+            elseif type(captured) == "table" then
+                -- Older nvim: match[id] is a list of TSNodes.
+                for _, node in ipairs(captured) do
+                    if process(node) == "skip" then return end
+                end
+            end
+            -- Anything else (number, string): silently skip; no capture to process.
         end
+    end
+
+    -- Dispatch the chosen matches.
+    --
+    -- ABOUT ROW SCOPING (single source of truth): the row-window filter
+    -- is enforced inside `process()` above.  Don't redefine it here --
+    -- doing so would create two competing sources of truth that future
+    -- contributors will struggle to keep in sync.  If you need to widen
+    -- or narrow the window, edit the filter in `process()` only.
+    local function apply(capture_name, char)
+        local entry = best_for_type[capture_name]
+        if not entry then return end
+        -- Single unpack of node:range() (4 ints: start_row, start_col,
+        -- end_row, end_col). Subscripting the result of a function call
+        -- (`entry.node:range()[1]`) is invalid in Lua: only the first
+        -- multi-return value is taken and indexed, which crashes with
+        -- `attempt to index a number value`. Always destructure.
+        --
+        -- end_row is intentionally bound (not dropped) to make it OBVIOUS
+        -- that no row-scoped check is being suppressed here -- the row
+        -- check is in `process()`.
+        local node_start_row, _, node_end_row, char_end_col = entry.node:range()
+        _ = node_end_row  -- see comment above
+        setter.set_character(bufnr, node_start_row, char_end_col, char)
+    end
+
+    if best_for_type.comma then
+        apply('comma', ',')
+    elseif best_for_type.semicolon then
+        apply('semicolon', ';')
+    elseif best_for_type.double_points then
+        apply('double_points', ':')
     end
 end
 
--- The main-entry point. Here we are checking the movement of the user and look
--- if we need to look if we should add a semicolon/comma/... or not.
+-- The main-entry point. It's called on every insert-mode text change and
+-- decides whether the user just inserted a new line (e.g. by pressing enter)
+-- and, if so, whether we should add a semicolon/comma/... to the line above.
+--
+-- We deliberately react to `TextChangedI` (an actual text mutation) instead of
+-- cursor movement. This way pure navigation (arrow keys, PageUp/Down,
+-- switching buffers/windows) never triggers us, because none of those change
+-- the buffer text.
 function TreeSetter.main(bufnr)
     local state = states[bufnr]
     if not state then
         return
     end
 
-    local line_num = vim.api.nvim_win_get_cursor(0)[1]
-
-    -- look if the user pressed the enter key by checking if the line number
-    -- increased. If yes, look if we have to add the semicolon/comma/etc. or
-    -- not.
-    if state.last_line_num < line_num then
-        TreeSetter.add_character(bufnr, state)
+    -- Ignore the text change caused by our own edit, otherwise we could end up
+    -- in an insertion loop.
+    if state.applying then
+        return
     end
 
-    -- refresh the old cursor position
-    state.last_line_num = line_num
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+
+    -- A new line was inserted (enter, `o`, `O`, ...) only if the total number
+    -- of lines grew. Plain typing keeps the line count the same, so we don't
+    -- react to it.
+    if line_count > state.last_line_count then
+        -- Guard against reacting to the `TextChangedI` event that our own edit
+        -- will emit.
+        state.applying = true
+        local ok, err = pcall(TreeSetter.add_character, bufnr, state)
+        -- Reset the guard *after* the resulting `TextChangedI` has been
+        -- processed. Scheduling defers it to the next event-loop tick, where
+        -- we also re-sync `last_line_count` against the post-edit buffer.
+        -- We intentionally do NOT update `last_line_count` synchronously
+        -- here: the value we just read is the *pre-edit* count and would
+        -- be stale until the buffer settles.
+        vim.schedule(function()
+            local s = states[bufnr]
+            if s then
+                s.applying = false
+                if vim.api.nvim_buf_is_valid(bufnr) then
+                    s.last_line_count = vim.api.nvim_buf_line_count(bufnr)
+                end
+            end
+        end)
+        if not ok then
+            require("tree-setter.logger").error("failed to add character: " .. tostring(err))
+        end
+    else
+        -- No new line: just refresh the tracked count so plain typing and
+        -- deletions keep the diff baseline current.
+        state.last_line_count = line_count
+    end
 end
 
 function TreeSetter.attach(bufnr, lang)
@@ -139,14 +257,18 @@ function TreeSetter.attach(bufnr, lang)
 
     states[bufnr] = {
         query = query,
-        last_line_num = 0,
+        last_line_count = vim.api.nvim_buf_line_count(bufnr),
+        applying = false,
     }
 
-    -- Use a buffer-local autocommand so we only react to cursor movement in
+    -- Use a buffer-local autocommand so we only react to text changes in
     -- buffers where tree-setter is actually attached.
     local augroup = vim.api.nvim_create_augroup("TreeSetter_" .. bufnr, { clear = true })
 
-    vim.api.nvim_create_autocmd("CursorMovedI", {
+    -- `TextChangedI` fires whenever the text is changed in insert mode. That's
+    -- exactly what we want: navigation-only events (arrow keys, PageUp/Down,
+    -- buffer/window switches) don't mutate text and therefore don't fire it.
+    vim.api.nvim_create_autocmd("TextChangedI", {
         group = augroup,
         buffer = bufnr,
         callback = function()

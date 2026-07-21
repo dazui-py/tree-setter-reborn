@@ -105,6 +105,15 @@
     (_)
 ) @semicolon)
 
+;; DELIBERATE: `function_definition` (incl. `bool f(...) {`, `void g(...) {`,
+;; `int h(...) { ...`) is NOT captured for @semicolon / @skip / @anything.
+;; Adding a capture here would silently break the
+;; `bool isPrime(int n) {` regression test in tests/test_main_c.lua
+;; (it would write `;` after `{`, corrupting the pending definition).
+;; If you need to terminate incomplete definitions, do it from a more
+;; specific capture (e.g. a typed_rule on the parameter_list) and
+;; document the change in CONTRIBUTING.md and the test.
+
 ;; ==========
 ;; Skips
 ;; ==========
