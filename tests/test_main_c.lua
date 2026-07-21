@@ -284,5 +284,55 @@ run_multi("  top-down edit after bottom-up  printf gets ;",
   })
 
 print()
+print("[Additional C regression tests]")
+
+-- =============================================================
+-- Multi-arg function definition with body brace: must stay untouched.
+-- `bool isPrime(int n, int k) {` is a function_definition; the query
+-- deliberately does NOT capture function_definition for @semicolon.
+-- =============================================================
+run_scenario("bool isPrime(int n, int k) { unchanged",
+              "bool isPrime(int n, int k) {",
+              "bool isPrime(int n, int k) {")
+
+-- Multi-arg forward declaration (no body brace): should get semicolon.
+-- Parsed as `declaration` by tree-sitter, captured by the (declaration)
+-- query regardless of how many parameters.
+run_scenario("bool isPrime(int n, int k)   + ;",
+              "bool isPrime(int n, int k)",
+              "bool isPrime(int n, int k);")
+
+-- =============================================================
+-- Struct member declaration: `int x` inside a struct body.
+-- Tree-sitter C represents struct members as `field_declaration`
+-- nodes, NOT `declaration` nodes.  Whether this test passes depends
+-- on whether the current queries or error-recovery path capture it.
+-- =============================================================
+run_multi("struct member decl            + ; on field",
+  {
+    "struct Point {",
+    "    int x",
+    "    int y;",
+    "};",
+  },
+  { { 2, "" } },          -- Enter after `int x` (insert blank at 0-based row 2)
+  3,                       -- cursor on 1-based line 3 (the post-Enter blank)
+  {
+    "struct Point {",
+    "    int x;",            -- should get ;
+    "",                      -- the post-Enter blank, untouched
+    "    int y;",
+    "};",
+  })
+
+-- =============================================================
+-- Multi-arg printf call: a function call with several arguments
+-- should still get `;` just like a single-arg printf.
+-- =============================================================
+run_scenario('printf("sum: %d", a, b)   + ;',
+              'printf("sum: %d", a, b)',
+              'printf("sum: %d", a, b);')
+
+print()
 print(string.format("RESULT pass=%d fail=%d", pass, fail))
 if fail ~= 0 then vim.cmd("cq!") else vim.cmd("qa!") end
