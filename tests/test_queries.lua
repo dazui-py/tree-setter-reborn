@@ -16,7 +16,7 @@ local cases = {
    { lang = "cpp",    snippets = { "int value" } },
    { lang = "lua",    snippets = { "print('hello')", "local x = 1", "return 1" } },
    { lang = "python", snippets = { "x = 1" } },
-   { lang = "rust",   snippets = { "let x = 1" } },
+   { lang = "rust",   snippets = { "let x = 1", "struct S { x: i32 }" } },
 }
 
 local pass, fail = 0, 0
