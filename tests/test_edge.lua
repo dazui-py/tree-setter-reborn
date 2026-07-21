@@ -138,21 +138,24 @@ print("[Re-attach after detach on same bufnr: state is fresh]")
 do
   local b = fresh_buf("c")
   -- First cycle: 1 line in pre-Enter state, attach, then add the blank line
-  -- so the delta-vs-baseline gate fires on main().
+  -- so the delta-vs-baseline gate fires on main().  Cursor is set AFTER
+  -- the insert to mirror real nvim's `<CR>` behaviour (vim moves the
+  -- cursor to the new blank line).  Our row anchor is `cursor_row - 1`,
+  -- so the cursor MUST be at the post-Enter blank for the test to align.
   vim.api.nvim_buf_set_lines(b, 0, -1, false, { "int a" })
-  vim.api.nvim_win_set_cursor(0, { 1, 0 })
   main_mod.attach(b, "c")
   vim.api.nvim_buf_set_lines(b, 1, 1, false, { "" })
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
   main_mod.main(b)
   main_mod.detach(b)
   local after_first = vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ""
 
   -- Second cycle: detach cleared the per-buffer state, so re-attach starts
-  -- a fresh baseline on `int b`.
+  -- a fresh baseline on `int b`.  Cursor after the insert (mirrors `<CR>`).
   vim.api.nvim_buf_set_lines(b, 0, -1, false, { "int b" })
-  vim.api.nvim_win_set_cursor(0, { 1, 0 })
   main_mod.attach(b, "c")
   vim.api.nvim_buf_set_lines(b, 1, 1, false, { "" })
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
   main_mod.main(b)
   main_mod.detach(b)
   local after_second = vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ""

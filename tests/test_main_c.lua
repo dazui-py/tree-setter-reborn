@@ -191,8 +191,94 @@ run_multi("cursor mid-printf       + ; on printf, `}` intact",
     "int main() {",
     "    if (x) {",
     "        printf(\"hello\");",  -- gets the ;
-    "        ",                   -- indent_fix: 8 spaces matching printf's indent
-    "    }",                      -- `}` shifted down, intact
+    "",                            -- the manually-inserted blank, untouched by set_text
+    "    }",                       -- `}` shifted down, intact
+  })
+
+-- =============================================================
+-- Regression: nested for/if/printf from tests/test.c.
+-- The user typed the nested block, then pressed Enter after `printf`.
+-- Pre-fix symptoms were (1) the printf line got `;;` instead of `;`,
+-- and (2) the `}` of the if-block AND the `}` of the for-block were
+-- DELETED.  Post-fix: only printf gets `;`; the if's `}`, the for's
+-- `}`, and main's `}` all stay untouched.
+-- =============================================================
+run_multi("  nested for/if/printf  only printf gets ;  `}` intact",
+  {
+    "#include <stdio.h>",
+    "#include <stdbool.h>",
+    "",
+    "bool isPrime(int n);",
+    "",
+    "int main(){",
+    "    for (int i = 0; i <= 100; i++) {",
+    "        if(isPrime(i)){",
+    "            printf(\"%d\\n\", i)",     -- missing ;
+    "        }",
+    "    }",
+    "}",
+  },
+  { { 9, "" } },                       -- Enter after printf (insert blank at 0-based row 9)
+  10,                                   -- cursor on 1-based line 10 (the post-Enter blank)
+  {
+    "#include <stdio.h>",
+    "#include <stdbool.h>",
+    "",
+    "bool isPrime(int n);",
+    "",
+    "int main(){",
+    "    for (int i = 0; i <= 100; i++) {",
+    "        if(isPrime(i)){",
+    "            printf(\"%d\\n\", i);",  -- got ;
+    "        }",                       -- if's `}` intact
+    "    }",                         -- for's `}` intact
+    "}",                           -- main's `}` intact
+  })
+
+-- =============================================================
+-- Regression: top-down editing after a bottom-up session from tests/test2.c.
+-- The user wrote `int main(){ ... return 0; ... }` first, then went
+-- back UP and added `printf(...)` on a body row mid-file, then
+-- pressed Enter.  Pre-fix: plugin missed the `;` because its row
+-- anchor came from `state.last_line_count - 1` (which matched the
+-- bottom of the file, not the line the user just edited).  Post-fix:
+-- row anchor is `cursor_row - 1`, the line ABOVE the post-Enter
+-- cursor, which pins printf regardless of where in the file it lives.
+-- =============================================================
+run_multi("  top-down edit after bottom-up  printf gets ;",
+  {
+    "#include <stdio.h>",
+    "",
+    "int main(){",
+    "    printf(\"Hello, World!\")",   -- missing ;
+    "",
+    "",
+    "",
+    "",
+    "",
+    "    return 0;",
+    "",
+    "",
+    "",
+    "}",
+  },
+  { { 4, "" } },                       -- Enter after printf (insert blank at 0-based row 4)
+  5,                                   -- cursor on 1-based line 5 = post-Enter blank
+  {
+    "#include <stdio.h>",
+    "",
+    "int main(){",
+    "    printf(\"Hello, World!\");",  -- got ;
+    "",                                -- the post-Enter blank, untouched
+    "",
+    "",
+    "",
+    "",
+    "    return 0;",                     -- intact
+    "",
+    "",
+    "",
+    "}",
   })
 
 print()

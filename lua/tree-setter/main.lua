@@ -66,6 +66,25 @@ function TreeSetter.add_character(bufnr, state)
         return
     end
 
+    -- Capture the user's pre-Edit row ONCE here: the line directly
+    -- above the post-Enter cursor.  This works whether the user
+    -- pressed Enter at the bottom of the buffer, in the middle,
+    -- or near the top (e.g. top-down editing after a bottom-up
+    -- session).  state.last_line_count only coincides with this
+    -- when the user is at the bottom of the buffer, so it's NOT
+    -- a reliable anchor -- the cursor is.
+    --
+    -- We resolve the window by `bufnr` rather than hard-coded 0 so
+    -- the cursor we capture is the cursor IN THE BUFFER WE'RE
+    -- ATTACHED TO, not whatever window happens to be current.
+    -- If the buffer isn't visible in any window (rare but observable
+    -- when a tab has only this buffer's augroup alive), bail.
+    local win_id = vim.fn.bufwinid(bufnr)
+    if win_id == -1 then
+        return
+    end
+    local user_row = vim.api.nvim_win_get_cursor(win_id)[1] - 2
+
     local query = state.query
 
     -- iterate through all matched queries, then dispatch the most-derived
@@ -114,13 +133,9 @@ function TreeSetter.add_character(bufnr, state)
                 -- window `int c` for the @semicolon slot in
                 -- `best_for_type`.
                 --
-                -- `state.last_line_count` at this point is the line
-                -- count BEFORE the user's last Enter (the post-edit
-                -- `vim.schedule(...)` callback updates it AFTER
-                -- `add_character` returns), so `state.last_line_count
-                -- - 1` is the 0-based row of the line the user just
-                -- blanked out.
-                local user_row = state.last_line_count - 1
+                -- `user_row` is captured ONCE at the top of
+                -- `add_character` from the file-local cursor and stays
+                -- constant across all captures within this dispatch.
                 if end_row < user_row - 1 or start_row > user_row then
                     return  -- out of window; silent nil (NOT "skip")
                 end

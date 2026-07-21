@@ -5,3 +5,10 @@ treesitter-old-api.txt
 # Tree-setter TODO:
 *ge.md
 *EC.md
+
+# User-provided test fixtures (must not enter repo):
+# The user's examples for reproducing bugs live at the project root as
+# test.c / test2.c.  These would corrupt the real source tree if committed.
+# Add a `tests/fixtures/*.c` directory and move them there if the project
+# grows past a couple of one-off examples.
+test*.c
