@@ -259,3 +259,68 @@ stop the process which tests which queries matches.
 In general that's it. Take a look into the comments of the code, to get a more
 detailed explanation. I hope that it roughly helped you to understand the
 backend. Feel free to ask by creating a new issue :)
+
+# Tests
+The repository ships a headless test suite under `tests/`. New code or query
+changes should be covered by a corresponding test before sending a pull
+request.
+
+## Layout
+```
+tests/
+├── test_setter.lua       unit tests for lua/tree-setter/setter.lua
+├── test_main_c.lua       e2e for C (attach + main + detach)
+├── test_main_lua.lua     e2e for the lua/ queries
+├── test_edge.lua         paste, o, dd, backspace-join, re-attach
+├── test_queries.lua      smoke test for every queries/<lang>/tsetter.scm
+└── run.sh                bash driver; runs every test_*.lua headless
+```
+
+## Conventions
+- Each test file ends with a line `RESULT pass=N fail=M` and a `cq!`
+  exit if any assertion failed, `qa!` otherwise.
+- `tests/run.sh` walks the directory in sorted order, runs each file via
+  `nvim --headless -c "luafile <path>"`, parses the trailing RESULT line,
+  and exits non-zero if any test failed.
+- A hang in any test is guarded by `PER_TEST_TIMEOUT` (default 20 s, can
+  be overridden on the env).
+
+## Writing a new test fixture
+- Pick the closest existing test (`setter`, `main_c`, `main_lua`,
+  `edge`, `queries`) and mimic its setup style.
+- Use one fresh buffer per scenario so per-buffer state never leaks.
+- If the test exercises a `@semicolon` insert, attach BEFORE you simulate
+  the user keypress so `state.last_line_count` records the pre-event
+  baseline (this mirrors what the production `TextChangedI` autocmd
+  observes).
+- For multi-line paste scenarios, prefer a count-based assertion
+  (e.g. "exactly one new `;` added") over pinning a specific line -- the
+  produced line depends on cursor-influenced `parent_node:range()`.
+
+## Running
+```
+bash tests/run.sh                # the whole suite (43/43 when current)
+PER_TEST_TIMEOUT=60 bash tests/run.sh
+bash tests/run.sh tests/test_main_c.lua   # run just one
+```
+A failing RESULT line tells you which file, but you can re-run any one
+file directly with `nvim --headless -c "luafile tests/<file>.lua"`.
+
+# Install / Development Gotcha
+When you clone *tree-setter* into something like `~/.local/share/nvim/site/pack/local/start/tree-setter/`, Neovim **shadows** your working tree with the installed copy on the next launch. If your edits don't seem to take effect, the install is stale:
+
+```sh
+# resolve where Neovim is actually loading the plugin from
+:lua print(vim.fn.systemlist({"readlink","-f", package.loaded["tree-setter.main"] and require("tree-setter.main") and ""}))
+# or simply
+:scriptnames
+```
+
+To develop against the working copy without re-installing on every change, point your runtimepath at it directly in your init.lua (before any other repo manager):
+
+```lua
+vim.opt.runtimepath:prepend("/absolute/path/to/your/tree-setter/checkout")
+```
+
+Then `:source %` after a Lua edit, or `:luafile lua/tree-setter/main.lua`, sees your local changes immediately. Without this, you may find yourself debugging a *ghost* copy from the pack dir.
+

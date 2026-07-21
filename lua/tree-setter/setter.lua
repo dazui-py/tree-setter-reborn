@@ -50,46 +50,40 @@ function Setter.set_character(bufnr, line_num, end_column, character)
         indent_fix = indent_fix .. (' '):rep(vim.o.shiftwidth)
     end
 
-    -- get the last character to know if there's already the needed
-    -- character or not
+    -- get the line where the character should (maybe) be added.
     local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
-    -- in this part, we're looking at the certain index where the
-    -- semicolon/comma/... should be, for example if there's already one.
-    -- We have two cases which for the following two example cases
-    --
-    --  1. example case:
-    --
-    --      for (int a = 0; a < 10; a++)
-    --
-    --  2. example case:
-    --      
-    --      int a
-    --
-    local wanted_character
-    if end_column + 1 < line:len() then
-        -- This is for case 1.
-        -- First sub:
-        --      Go to the part of the query
-        -- Second sub:
-        --      Pick up the last character of the query
-        wanted_character = line:sub(end_column, end_column + 1):sub(-1)
-    else
-        -- In this case the query is the has the last part of the line as well
-        -- so we can just pick up the last character of the whole line (see
-        -- example case 2)
-        wanted_character = line:sub(-1)
-    end
 
-    -- is our character already placed? If not => Place it!
+    -- `end_column` is tree-sitter's *end-exclusive*, 0-based column of the
+    -- captured node, i.e. it points right *after* the node's last character.
+    -- Our punctuation (`;`/`,`/`:`) belongs exactly at that spot. In Lua's
+    -- 1-based string indexing the character sitting in that spot is at index
+    -- `end_column + 1`.
     --
-    -- The second condition is used, to check cases like this:
+    -- `next_character` is therefore what directly follows the captured node.
+    -- We use it for two checks:
     --
+    --  1. Avoid duplicates: if the wanted character is already there, don't
+    --     add a second one, e.g. we mustn't turn
+    --
+    --          int a;   into   int a;;
+    --
+    --  2. Protect the *complete* for-loop case:
+    --
+    --          for (int var = 0; var < 10; var++)
+    --
+    --     Here the `var++` (an `update_expression`) is captured for a
+    --     semicolon, but it lives *inside* the parentheses, so the character
+    --     right after it is `)`. In that case we must NOT add a semicolon.
+    --
+    --  Note: we deliberately look at the character *after the node* and not at
+    --  the last character of the whole line. Otherwise legitimate statements
+    --  that simply end with a `)` -- like `printf("hello")` or `my_func()` --
+    --  would wrongly be skipped too.
+    local next_character = line:sub(end_column + 1, end_column + 1)
 
-    --      for (int var = 0; var < 10; var++)
-    --
-    --  Without the second condition, we'd let `var++` enter this condition,
-    --  which would add a semicolon after the `)`.
-    if (wanted_character ~= character) and (wanted_character ~= ')') then
+    -- is our character already placed, or are we inside a closing paren? If
+    -- neither => Place it!
+    if (next_character ~= character) and (next_character ~= ')') then
         -- we need the "+ 2" here, because:
         --  1. The column-index is *exclusive* => + 1
         --  2. We need to set even the next line with our new indentation => + 1
