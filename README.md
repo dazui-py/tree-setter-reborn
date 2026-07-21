@@ -20,17 +20,45 @@ As you can see from in the key-screen-bar
 `<CR>` key. The semicolon was added automatically.
 
 # Installation
-With [vim-plug](https://github.com/junegunn/vim-plug):
+tree-setter-reborn supports all the usual plugin managers:
+
+</details>
+
+<details>
+  <summary>vim-plug</summary>
 
 ```vim
 Plug 'TornaxO7/tree-setter'
 ```
 
-Or with [lazy.nvim](https://github.com/folke/lazy.nvim):
+</details>
+
+<details>
+  <summary>lazy.nvim</summary>
 
 ```lua
-{ "TornaxO7/tree-setter", opts = {} }
+{ "dazui-py/tree-setter-reborn", opts = {} }
 ```
+</details>
+
+<details>
+  <summary>vim.pack (Neovim 0.12+)</summary>
+
+```lua
+vim.pack.add({'https://github.com/dazui-py/tree-setter-reborn'})
+```
+
+</details>
+
+<details>
+  <summary>Neovim native package</summary>
+
+```sh
+git clone --depth=1 https://github.com/dazui-py/tree-setter-reborn.git \
+  "${XDG_DATA_HOME:-$HOME/.local/share}"/nvim/site/pack/tsetter/start/tree-setter-reborn
+```
+
+</details>
 
 Then enable it once (for example in your `init.lua`):
 ```lua
@@ -47,7 +75,7 @@ without such a query file are simply ignored.
 > **Note:** requires a recent Neovim with the native treesitter API
 > (`vim.treesitter.query.get`, `vim.treesitter.get_node`, ...).
 
-### Developing / hacking-tree-setter tip
+### Developing tip:
 
 When you want your changes in this repository to be the ones Neovim *actually*
 runs, install the plugin as a symlink into one of Neovim's auto-loaded
@@ -56,7 +84,7 @@ manager. The cleanest way is:
 
 ```bash
 # Remove any pre-existing install (avoid an OLD copy of this plugin shadowing
-# your edits -- this was a real bug that took an afternoon to track down).
+# your edits -- this was a real issue that took me some time to realize, and since I use vim.pack had to do this workaround).
 rm -rf ~/.local/share/nvim/site/pack/*/start/tree-setter-reborn
 rm -rf ~/.local/share/nvim/site/pack/*/opt/tree-setter-reborn
 
