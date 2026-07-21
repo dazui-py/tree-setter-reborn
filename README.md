@@ -28,7 +28,7 @@ tree-setter-reborn supports all the usual plugin managers:
   <summary>vim-plug</summary>
 
 ```vim
-Plug 'TornaxO7/tree-setter'
+Plug 'dazui-py/tree-setter-reborn'
 ```
 
 </details>
