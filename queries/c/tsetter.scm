@@ -33,6 +33,32 @@
 ) @semicolon)
 
 ;; --------------
+;; Struct/Union members
+;; --------------
+;; Query for struct/union field declarations (members).
+;; Tree-sitter C represents struct members as `field_declaration` nodes,
+;; NOT `declaration` nodes, so the declaration query above does not capture
+;; them.
+;; Example:
+;;      struct Point { int x }
+;;      struct Data { char name }
+;;
+;; Tree-sitter's error recovery may produce either a proper field_declaration
+;; with a MISSING `;` or wrap it in an ERROR node, so we need both forms
+;; (same dual-query pattern as call_expression below).
+(field_declaration
+    type: (_)
+    declarator: (_) @semicolon
+)
+
+((ERROR
+    (field_declaration
+        type: (_)
+        declarator: (_)
+    )
+) @semicolon)
+
+;; --------------
 ;; Functions
 ;; --------------
 ;; This query is mainly used for custom function-calls
