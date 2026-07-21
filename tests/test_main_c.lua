@@ -230,6 +230,7 @@ run_multi("  nested for/if/printf  only printf gets ;  `}` intact",
     "    for (int i = 0; i <= 100; i++) {",
     "        if(isPrime(i)){",
     "            printf(\"%d\\n\", i);",  -- got ;
+    "",                            -- the post-Enter blank, untouched by set_text
     "        }",                       -- if's `}` intact
     "    }",                         -- for's `}` intact
     "}",                           -- main's `}` intact
@@ -270,6 +271,7 @@ run_multi("  top-down edit after bottom-up  printf gets ;",
     "int main(){",
     "    printf(\"Hello, World!\");",  -- got ;
     "",                                -- the post-Enter blank, untouched
+    "",                                -- an extra blank pushed down by the new blank
     "",
     "",
     "",
