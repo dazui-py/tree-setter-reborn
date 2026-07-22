@@ -7,7 +7,7 @@ issue-message](https://github.com/TornaxO7/tree-setter/issues/1#issuecomment-102
 
 # TreeSetter
 TreeSetter is a
-[nvim-treesitter-module](https://github.com/nvim-treesitter/module-template)
+~~[nvim-treesitter-module](https://github.com/nvim-treesitter/module-template)~~
 which **adds semicolons (`;`), commas (`,`) and double points (`:`) automatically**
 for you, if you hit enter at the end of a line!
 
@@ -60,6 +60,8 @@ git clone --depth=1 https://github.com/dazui-py/tree-setter-reborn.git \
 
 </details>
 
+> Didn't list all of them.
+
 Then enable it once (for example in your `init.lua`):
 ```lua
 require("tree-setter").setup()
@@ -79,12 +81,11 @@ without such a query file are simply ignored.
 
 When you want your changes in this repository to be the ones Neovim *actually*
 runs, install the plugin as a symlink into one of Neovim's auto-loaded
-locations so it isn't shadowed by a stale copy shipped through your plugin
-manager. The cleanest way is:
+locations so it isn't shadowed by a stale copy through your plugin
+manager. The way I recommend is:
 
 ```bash
-# Remove any pre-existing install (avoid an OLD copy of this plugin shadowing
-# your edits -- this was a real issue that took me some time to realize, and since I use vim.pack had to do this workaround).
+# Remove any pre-existing install (avoid an OLD copy of this plugin shadowing your edits)
 rm -rf ~/.local/share/nvim/site/pack/*/start/tree-setter-reborn
 rm -rf ~/.local/share/nvim/site/pack/*/opt/tree-setter-reborn
 
@@ -94,7 +95,7 @@ ln -s "$PWD" ~/.local/share/nvim/site/pack/core/start/tree-setter-reborn
 ```
 
 After this, edits in this directory are picked up the moment you restart
-Neovim -- no copying back into a checkout, no `packadd` incantation.
+Neovim, no need to copy back into a checkout or use`packadd`.
 
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)
