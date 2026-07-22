@@ -148,6 +148,55 @@ run_scenario("bool isPrime(int n) {       unchanged",
               "bool isPrime(int n) {",
               "bool isPrime(int n) {")
 
+-- =============================================================
+-- Empty parameter lists: `void test()`, `int main()`, `bool f()`, etc.
+-- Tree-sitter C wraps these in an ERROR node (they're parsed as
+-- primitive_type + function_declarator, not declaration + declarator).
+-- A dedicated ERROR-wrapped function_declarator query is needed to
+-- capture them (see queries/c/tsetter.scm).
+-- =============================================================
+
+-- Without braces: should all get `;` (forward declarations).
+print()
+print("[Empty-param function declarations  + ;]")
+run_scenario("void test()                  + ;",
+              "void test()",
+              "void test();")
+run_scenario("int test()                   + ;",
+              "int test()",
+              "int test();")
+run_scenario("char test()                  + ;",
+              "char test()",
+              "char test();")
+run_scenario("float test()                 + ;",
+              "float test()",
+              "float test();")
+run_scenario("double test()                + ;",
+              "double test()",
+              "double test();")
+run_scenario("long test()                  + ;",
+              "long test()",
+              "long test();")
+run_scenario("bool isPrime()               + ;",
+              "bool isPrime()",
+              "bool isPrime();")
+
+-- With braces: function definitions must stay untouched (the `{` opens the body).
+print()
+print("[Empty-param function-def-with-brace  unchanged]")
+run_scenario("void test() {                unchanged",
+              "void test() {",
+              "void test() {")
+run_scenario("int main() {                 unchanged",
+              "int main() {",
+              "int main() {")
+run_scenario("char test() {                unchanged",
+              "char test() {",
+              "char test() {")
+run_scenario("bool isPrime() {             unchanged",
+              "bool isPrime() {",
+              "bool isPrime() {")
+
 print()
 print("[Bug 2 regression: cursor far below an unterminated if-body + Enter]")
 -- Exact scenario from the user's bug 2 report: an unterminated printf

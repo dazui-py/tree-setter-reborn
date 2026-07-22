@@ -140,6 +140,22 @@
     (_)
 ) @semicolon)
 
+;; Tree-sitter C wraps function declarations with empty parameter lists
+;; (e.g. `void test()`, `int main()`, `bool isPrime()`) inside an ERROR
+;; node because `()` is ambiguous with a function call.  Inside the ERROR,
+;; the children are (type_node) + (function_declarator).  The existing
+;; (declaration ...) query cannot reach inside the ERROR because the
+;; `declaration` parent doesn't exist there.
+;;
+;; We capture the function_declarator child so declarations without
+;; parameters get `;` just like their parameterised counterparts.
+((ERROR
+    (function_declarator
+        declarator: (identifier)
+        parameters: (parameter_list)
+    )
+) @semicolon)
+
 ;; DELIBERATE: `function_definition` (incl. `bool f(...) {`, `void g(...) {`,
 ;; `int h(...) { ...`) is NOT captured for @semicolon / @skip / @anything.
 ;; Adding a capture here would silently break the
