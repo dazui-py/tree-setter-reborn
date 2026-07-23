@@ -534,6 +534,50 @@ run_multi("adjacent decls  only cursor-row gets ;",
   2,
   { "int x;", "", "int y" })
 
+-- =============================================================
+-- Reverse buffer isolation: attach Lua first, then `:e` to C.
+-- The differentiator is `break`: Lua doesn't capture `break` at
+-- all, while C captures `ERROR "break" @semicolon` and adds `;`.
+-- Pre-fix: Lua query would persist after :e to C, and `break`
+-- would NOT get `;`.  Post-fix: C query takes over, `break;`.
+-- =============================================================
+print()
+print("[Reverse isolation: Lua -> C via :e]")
+do
+  local name = "Lua -> C via :e  C query takes over, break + ;"
+  vim.cmd("enew!")
+  local b = vim.api.nvim_get_current_buf()
+
+  -- Step 1: attach as Lua, set Lua content.
+  vim.bo[b].filetype = "lua"
+  vim.api.nvim_set_option_value("modifiable", true, { buf = b })
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, { "local x = 1" })
+  main_mod.attach(b, "lua")
+  vim.api.nvim_buf_set_lines(b, 1, 1, false, { "" })
+  pcall(vim.api.nvim_win_set_cursor, 0, { 2, 0 })
+  main_mod.main(b)       -- Lua query in use
+
+  -- Step 2: simulate `:e` to C -- replace content, filetype changes, re-attach.
+  vim.bo[b].filetype = "c"
+  vim.api.nvim_buf_set_lines(b, 0, -1, false, { "break" })
+  main_mod.attach(b, "c")      -- pre-fix: no-op (states[b] existed with lang="lua")
+  vim.api.nvim_buf_set_lines(b, 1, 1, false, { "" })
+  pcall(vim.api.nvim_win_set_cursor, 0, { 2, 0 })
+  main_mod.main(b)       -- post-fix: C query used; break -> break;
+
+  main_mod.detach(b)
+  local got = vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ""
+  -- Pre-fix bug: Lua query doesn't capture break, so got = "break"
+  -- Post-fix: C query `ERROR "break" @semicolon` makes got = "break;"
+  if got == 'break;' then
+    pass = pass + 1
+    print(string.format("  %-50s PASS", name))
+  else
+    fail = fail + 1
+    print(string.format("  %-50s FAIL  (got=%q want='break;')", name, got))
+  end
+end
+
 print()
 print(string.format("RESULT pass=%d fail=%d", pass, fail))
 if fail ~= 0 then vim.cmd("cq!") else vim.cmd("qa!") end
