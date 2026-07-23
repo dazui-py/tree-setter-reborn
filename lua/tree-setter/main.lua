@@ -20,6 +20,7 @@ local TreeSetter = {}
 -- `states[bufnr]` looks like this:
 --      {
 --          query = <the tsetter query for this buffer's language>,
+--          lang  = <string: the treesitter language name>,
 --          -- the number of lines the buffer had after we last processed a
 --          -- change. It's used to detect whether the *user* inserted a new
 --          -- line (i.e. pressed enter / opened a line) since the last text
@@ -259,9 +260,16 @@ function TreeSetter.main(bufnr)
 end
 
 function TreeSetter.attach(bufnr, lang)
-    -- Don't attach twice to the same buffer.
-    if states[bufnr] then
-        return
+    local state = states[bufnr]
+    if state then
+        -- Already attached to this buffer.  If the language changed (e.g.
+        -- the user did `:e` from a C file to a Lua file in the same buffer
+        -- slot), detach first so we re-attach with the correct query.
+        -- Do NOT skip just because the buffer number is reused.
+        if state.lang == lang then
+            return
+        end
+        TreeSetter.detach(bufnr)
     end
 
     local query = vim.treesitter.query.get(lang, "tsetter")
@@ -272,6 +280,7 @@ function TreeSetter.attach(bufnr, lang)
 
     states[bufnr] = {
         query = query,
+        lang = lang,
         last_line_count = vim.api.nvim_buf_line_count(bufnr),
         applying = false,
     }
