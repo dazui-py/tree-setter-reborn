@@ -104,9 +104,14 @@ function TreeSetter.add_character(bufnr, state)
     -- type, so a single Enter always produces exactly one edit on the line
     -- right above the cursor.
     --
-    -- `@skip` keeps its early-return semantics so a skip inside the
-    -- range always wins.
-    local best_for_type = {}  -- capture_name -> {node, end_row, end_col}
+    -- `@skip` beats every other match on the SAME ROW: when an
+    -- in-window @skip fires, we record its row and post-filter any
+    -- @semicolon / @comma / @double_points that starts on that row.
+    -- This is more precise than a global "skip everything" flag, which
+    -- would wrongly discard matches on other rows (e.g. a `printf`
+    -- two lines below an unterminated `if`).
+    local best_for_type = {}  -- capture_name -> {node, start_row, end_row, end_col}
+    local skip_rows = {}      -- set of rows that have an in-window @skip
 
     -- `match[id]` can be a single TSNode (newer nvim) OR a list of TSNodes
     -- (older nvim).  We dispatch both shapes to a uniform `process(node)`
@@ -141,10 +146,14 @@ function TreeSetter.add_character(bufnr, state)
                     return  -- out of window; silent nil (NOT "skip")
                 end
 
-                -- `@skip` beats every other match -- but only for
-                -- in-window captures, thanks to the filter above.
+                -- `@skip` beats every other match on the SAME ROW.
+                -- We record the row and continue processing so that
+                -- ordering between iter_matches doesn't matter.  After
+                -- the loop, any best_for_type entry that starts on a
+                -- skip row is discarded.
                 if capture_name == "skip" then
-                    return "skip"  -- sentinel that short-circuits the outer loops
+                    skip_rows[start_row] = true
+                    return
                 end
 
                 -- Among same-name captures, keep the one furthest down (or
@@ -152,22 +161,34 @@ function TreeSetter.add_character(bufnr, state)
                 -- different rows are ranked by row first, col second.
                 local cur = best_for_type[capture_name]
                 if not cur then
-                    best_for_type[capture_name] = { node = node, end_row = end_row, end_col = end_col }
+                    best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
                 elseif end_row > cur.end_row or (end_row == cur.end_row and end_col > cur.end_col) then
-                    best_for_type[capture_name] = { node = node, end_row = end_row, end_col = end_col }
+                    best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
                 end
             end
 
             if type(captured) == "userdata" then
                 -- Modern nvim: match[id] is a single TSNode.
-                if process(captured) == "skip" then return end
+                process(captured)
             elseif type(captured) == "table" then
                 -- Older nvim: match[id] is a list of TSNodes.
                 for _, node in ipairs(captured) do
-                    if process(node) == "skip" then return end
+                    process(node)
                 end
             end
             -- Anything else (number, string): silently skip; no capture to process.
+        end
+    end
+
+    -- Discard any best_for_type entry that starts on a row where an
+    -- in-window @skip was hit.  This prevents adding `;` to a line
+    -- that tree-sitter flagged as mid-typing (e.g. `require('cord').setup {`
+    -- where the unclosed table wraps the function_call in ERROR).
+    -- Entries on OTHER rows (e.g. `printf` below an unterminated `if`)
+    -- are not affected.
+    for name, entry in pairs(best_for_type) do
+        if skip_rows[entry.start_row] then
+            best_for_type[name] = nil
         end
     end
 

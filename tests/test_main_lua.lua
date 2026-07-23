@@ -109,6 +109,10 @@ run_scenario("for i=1,10 do  (skip)",      "for i=1,10 do",    "for i=1,10 do")
 run_scenario("repeat         (skip)",      "repeat",           "repeat")
 -- Incomplete do.
 run_scenario("do             (skip)",      "do",               "do")
+-- Unclosed table in function call: `require('cord').setup {`
+-- Tree-sitter wraps in ERROR; the inner function_call must NOT get `;`.
+run_scenario("require().setup { (skip)",     "require('cord').setup {",
+              "require('cord').setup {")
 
 print()
 print("[Lua no semicolon -- function defs and control flow]")

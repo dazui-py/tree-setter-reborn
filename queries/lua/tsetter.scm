@@ -68,6 +68,22 @@
 ;;      do
 (ERROR ["if" "while" "for" "function" "repeat" "do"] @skip)
 
+;; Skip function calls that live inside an ERROR node.  When the user types
+;; `require('cord').setup {` and presses Enter before closing the table,
+;; tree-sitter wraps the whole thing in ERROR.  The inner `require('cord')`
+;; function_call is NOT a direct child of ERROR -- it sits inside a
+;; `dot_index_expression`:
+;;
+;;   ERROR
+;;     dot_index_expression
+;;       function_call          <-- we want to skip this
+;;     {                        <-- stray open brace
+;;
+;; Without this skip, the `(function_call) @semicolon` rule would match
+;; that partial call and the setter would append `;` at the end of the
+;; line (`require('cord').setup {;`).
+(ERROR (dot_index_expression (function_call) @skip))
+
 
 ;; =============================================================================
 ;; Notes for future maintainers
