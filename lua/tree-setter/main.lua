@@ -202,18 +202,30 @@ function TreeSetter.add_character(bufnr, state)
     local function apply(capture_name, char)
         local entry = best_for_type[capture_name]
         if not entry then return end
+        -- Insert the terminator on the LAST row of the captured node,
+        -- not the first.  A multi-line capture like
+        --
+        --      tan.tam({
+        --          1,
+        --          2,
+        --          3       <-- cursor; user pressed <CR> here
+        --
+        -- parses as one function_call that spans rows 0..2.  Using
+        -- start_row would dump `;` at the end of line 0 (`tan.tam({1,;`)
+        -- which is the user-reported bug.  Using end_row puts it at
+        -- the end of the line where the construct actually finishes
+        -- (`3;`).
+        --
+        -- For single-line captures end_row equals start_row, so this
+        -- change is a no-op for the common case.
+        --
         -- Single unpack of node:range() (4 ints: start_row, start_col,
         -- end_row, end_col). Subscripting the result of a function call
         -- (`entry.node:range()[1]`) is invalid in Lua: only the first
         -- multi-return value is taken and indexed, which crashes with
         -- `attempt to index a number value`. Always destructure.
-        --
-        -- end_row is intentionally bound (not dropped) to make it OBVIOUS
-        -- that no row-scoped check is being suppressed here -- the row
-        -- check is in `process()`.
-        local node_start_row, _, node_end_row, char_end_col = entry.node:range()
-        _ = node_end_row  -- see comment above
-        setter.set_character(bufnr, node_start_row, char_end_col, char)
+        local _, _, node_end_row, char_end_col = entry.node:range()
+        setter.set_character(bufnr, node_end_row, char_end_col, char)
     end
 
     if best_for_type.comma then

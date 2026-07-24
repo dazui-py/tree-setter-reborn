@@ -187,5 +187,33 @@ run_multi("if x then (skip), return 1 + ;",
   { "if x then", "    return 1;", "" })
 
 print()
+print("[Lua multi-line -- terminator on LAST line of the call]")
+-- Tree-sitter parses an unclosed table as a multi-line function_call
+-- (implicit close at EOF).  Before the fix, this placed `;` at the
+-- end of the FIRST line (`tan.tam({1,;`), corrupting the user's
+-- in-progress table.  After the fix, `;` lands at the bottommost line,
+-- where the construct actually ends.
+run_multi("multi-line tan.tam({ ; at end, not start",
+  { "tan.tam({", "1,", "2,", "3" },
+  { { -1, "" } },                  -- Enter at EOF (after `3`)
+  5,                                -- cursor on line 5 (the new blank)
+  { "tan.tam({", "1,", "2,", "3;", "" })
+
+-- Same idea with a freshly-closed table across many lines.
+run_multi("multi-line print(...) ; at end of last line",
+  { "print(", "  1,", "  2,", "  3", ")" },
+  { { -1, "" } },                  -- Enter after `)`
+  6,
+  { "print(", "  1,", "  2,", "  3", ");", "" })
+
+print()
+print("[Lua single-line -- terminator at end of same line, unchanged]")
+-- Sanity: single-line captures still get `;` exactly where they used
+-- to.  With the fix, end_row == start_row for these, so behaviour is
+-- preserved.
+run_scenario("single line print unchanged end-col",  "print(\"x\")",  "print(\"x\");")
+run_scenario("single line return unchanged end-col", "return 5",     "return 5;")
+
+print()
 print(string.format("RESULT pass=%d fail=%d", pass, fail))
 if fail ~= 0 then vim.cmd("cq!") else vim.cmd("qa!") end
