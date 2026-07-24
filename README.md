@@ -74,6 +74,25 @@ the treesitter parser for your language to be installed (e.g. via
 bundled parsers) and a `queries/<lang>/tsetter.scm` file to exist. Languages
 without such a query file are simply ignored.
 
+## Setup options
+
+`setup(opts)` accepts a table with the following optional keys:
+
+| Key                  | Type      | Default | Description                                                                                                                            |
+|----------------------|-----------|---------|----------------------------------------------------------------------------------------------------------------------------------------|
+| `disabled_languages` | `string[]`| `{}`    | List of tree-sitter language names that tree-setter must NOT attach to. Matched case-insensitively. Everything else is left enabled. |
+
+Example: keep tree-setter on every supported language EXCEPT Lua and Rust:
+
+```lua
+require("tree-setter").setup({
+    disabled_languages = { "lua", "rust" },
+})
+```
+
+A second `setup()` call fully replaces the previous config, so toggling a
+language on or off later is a one-line change in your init.lua.
+
 > **Note:** requires a recent Neovim with the native treesitter API
 > (`vim.treesitter.query.get`, `vim.treesitter.get_node`, ...).
 
