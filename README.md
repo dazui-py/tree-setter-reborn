@@ -116,6 +116,13 @@ ln -s "$PWD" ~/.local/share/nvim/site/pack/core/start/tree-setter-reborn
 After this, edits in this directory are picked up the moment you restart
 Neovim, no need to copy back into a checkout or use`packadd`.
 
+## Known limitations
+
+* Function prototypes with pointer-to-pointer return types (`int **foo()`) are
+  not detected: tree-sitter nests the signature two levels deep and query
+  patterns have no "any descendant" operator. Primitive, struct, typedef and
+  single-pointer return types are all covered.
+
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)
 

@@ -197,6 +197,107 @@ run_scenario("bool isPrime() {             unchanged",
               "bool isPrime() {",
               "bool isPrime() {")
 
+-- =============================================================
+-- More prototype return types: typedef names, struct returns,
+-- pointer returns, qualified types.  All should get `;`.
+-- =============================================================
+print()
+print("[More prototype return types  + ;]")
+run_scenario("struct S test()            + ;",
+              "struct S test()",
+              "struct S test();")
+run_scenario("my_type test()             + ;",
+              "my_type test()",
+              "my_type test();")
+run_scenario("unsigned int test()        + ;",
+              "unsigned int test()",
+              "unsigned int test();")
+run_scenario("int *test()                + ;",
+              "int *test()",
+              "int *test();")
+run_scenario("const char *test()         + ;",
+              "const char *test()",
+              "const char *test();")
+
+-- KNOWN LIMITATION (documented, not a bug): pointer-to-pointer return
+-- types (`int **test()`) are not captured.  Tree-sitter nests the
+-- function_declarator two levels deep inside pointer_declarator nodes and
+-- tree-sitter queries have no "descendant" operator, so no pattern reaches
+-- it.  Asserted here so the behaviour is explicit rather than a surprise.
+run_scenario("int **test()  (known limitation: unchanged)",
+              "int **test()",
+              "int **test()")
+
+-- =============================================================
+-- Function prototypes typed ABOVE an already-existing function
+-- definition (the user's real flow: write main() first, then go
+-- back up and add the prototype).  Tree-sitter merges the
+-- prototype with the definition below into one ERROR or
+-- function_definition node; the queries must still pin `;` to
+-- the prototype's own row, never touching the `{` line below.
+-- =============================================================
+print()
+print("[Prototype typed above an existing function  + ;]")
+local protomain = { "int main() {", "    return 0;", "}" }
+run_multi("bool proto above main        + ; on proto",
+  { "bool isPrime(int n)", unpack(protomain) },
+  { { 1, "" } },           -- Enter after the prototype (insert blank at row 1)
+  2,                       -- cursor on 1-based line 2 (the post-Enter blank)
+  { "bool isPrime(int n);", "", "int main() {", "    return 0;", "}" })
+run_multi("int proto above main         + ; on proto",
+  { "int test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int test();", "", "int main() {", "    return 0;", "}" })
+run_multi("void proto above main        + ; on proto",
+  { "void test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "void test();", "", "int main() {", "    return 0;", "}" })
+run_multi("empty-param proto above main + ; on proto",
+  { "bool isPrime()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "bool isPrime();", "", "int main() {", "    return 0;", "}" })
+run_multi("multi-arg proto above main   + ; on proto",
+  { "int test(int a, char b)", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int test(int a, char b);", "", "int main() {", "    return 0;", "}" })
+run_multi("ptr proto above main         + ; on proto",
+  { "int *test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int *test();", "", "int main() {", "    return 0;", "}" })
+run_multi("unsigned proto above main    + ; on proto",
+  { "unsigned int test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "unsigned int test();", "", "int main() {", "    return 0;", "}" })
+run_multi("struct proto above main      + ; on proto",
+  { "struct S test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "struct S test();", "", "int main() {", "    return 0;", "}" })
+run_multi("typedef proto above main     + ; on proto",
+  { "my_type test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "my_type test();", "", "int main() {", "    return 0;", "}" })
+
+-- The user's exact flow: main() with a real body already typed below,
+-- prototype added afterwards.  `;` must land on the prototype only.
+run_multi("user flow: bool proto above body  + ; on proto",
+  { "bool isPrime(int n)", "int main() {", "    printf(\"hello\")", "    return 0;", "}" },
+  { { 1, "" } },
+  2,
+  { "bool isPrime(int n);", "", "int main() {", "    printf(\"hello\")", "    return 0;", "}" })
+run_multi("user flow: void proto above body  + ; on proto",
+  { "void test()", "int main() {", "    printf(\"hello\")", "    return 0;", "}" },
+  { { 1, "" } },
+  2,
+  { "void test();", "", "int main() {", "    printf(\"hello\")", "    return 0;", "}" })
+
 print()
 print("[Bug 2 regression: cursor far below an unterminated if-body + Enter]")
 -- Exact scenario from the user's bug 2 report: an unterminated printf

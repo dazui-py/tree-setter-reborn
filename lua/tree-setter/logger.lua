@@ -7,6 +7,9 @@ local logger = {
     info = function(message)
         vim.notify(header .. message, vim.log.levels.INFO)
     end,
+    warn = function(message)
+        vim.notify(header .. message, vim.log.levels.WARN)
+    end,
 }
 
 return logger

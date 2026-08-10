@@ -112,11 +112,15 @@
 ;; -----------
 ;; Macros
 ;; -----------
-;; Places a semicolon after a macro call like "free()"
-((macro_type_specifier
-    name: (_)
-    type: (_)
-) @semicolon)
+;; NOTE: `macro_type_specifier` (macros used as types, e.g. `free(ptr)` or
+;; `MY_TYPE x`) is NOT queried here.  That node only exists in
+;; tree-sitter-c >= 0.21; on older grammars (Termux, older distros) a query
+;; referencing it fails to PARSE, which crashed every C/header buffer with
+;; E5108 (`Invalid node type "macro_type_specifier"`).  The pattern lives in
+;; queries/c/tsetter_extra.scm instead, which the plugin loads separately and
+;; only when the installed grammar can parse it (see lua/tree-setter/main.lua).
+;; On old grammars `free(ptr)` parses as a plain call_expression and is
+;; caught by the call_expression queries above.
 
 ;; ----------------------
 ;; Other expressions
@@ -147,23 +151,52 @@
 ;; (declaration ...) query cannot reach inside the ERROR because the
 ;; `declaration` parent doesn't exist there.
 ;;
-;; We capture the function_declarator child so declarations without
-;; parameters get `;` just like their parameterised counterparts.
-((ERROR
+;; We capture the function_declarator CHILD, not the ERROR itself.  When a
+;; prototype is typed ABOVE an already-existing function definition,
+;; tree-sitter merges both into one multi-row ERROR
+;; (`int test()<blank>int main() {` -> ERROR rows 0..2); capturing the ERROR
+;; would place `;` on its LAST row (the `{` line).  Capturing the inner
+;; declarator pins `;` to the prototype's own row, and the plugin's row
+;; filter drops the `main()` declarator below the cursor window.
+(ERROR
     (function_declarator
-        declarator: (identifier)
-        parameters: (parameter_list)
-    )
-) @semicolon)
+        declarator: (_)
+        parameters: (_)
+    ) @semicolon
+)
 
-;; DELIBERATE: `function_definition` (incl. `bool f(...) {`, `void g(...) {`,
-;; `int h(...) { ...`) is NOT captured for @semicolon / @skip / @anything.
-;; Adding a capture here would silently break the
-;; `bool isPrime(int n) {` regression test in tests/test_main_c.lua
-;; (it would write `;` after `{`, corrupting the pending definition).
-;; If you need to terminate incomplete definitions, do it from a more
-;; specific capture (e.g. a typed_rule on the parameter_list) and
-;; document the change in CONTRIBUTING.md and the test.
+;; Function definitions: capture the DECLARATOR'S PARAMETER LIST so a
+;; prototype typed ABOVE an already-existing definition still gets `;`.
+;; Tree-sitter merges
+;;
+;;      bool isPrime(int n)
+;;      int main() { ... }
+;;
+;; into ONE function_definition whose declarator swallows rows 0..2.  The
+;; only node that reliably ENDS on the prototype's own row is its
+;; parameter_list, so we anchor the capture there (the setter places `;` at
+;; the end of the capture's last row).
+;;
+;; The `bool isPrime(int n) {` regression test in tests/test_main_c.lua stays
+;; green because the setter refuses to terminate a line that already ends
+;; with `{` (see the `{` guard in lua/tree-setter/setter.lua): an opening
+;; brace never wants `;`.
+;;
+;; Two shapes are needed: the declarator can be a bare function_declarator
+;; (`bool f(int n)`) or a pointer_declarator wrapping one (`int *f(int n)`).
+(function_definition
+    declarator: (function_declarator
+        parameters: (_) @semicolon
+    )
+)
+
+(function_definition
+    declarator: (_
+        (function_declarator
+            parameters: (_) @semicolon
+        )
+    )
+)
 
 ;; ==========
 ;; Skips

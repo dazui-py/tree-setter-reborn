@@ -63,7 +63,23 @@ local function is_enabled(lang)
     if config.disabled_languages[lang:lower()] then
         return false
     end
-    return vim.treesitter.query.get(lang, "tsetter") ~= nil
+    -- `vim.treesitter.query.get` raises when the query file references a node
+    -- type the INSTALLED grammar doesn't have (e.g. `macro_type_specifier` on
+    -- a tree-sitter-c older than 0.21).  Without the pcall that error escapes
+    -- the FileType autocmd and crashes every buffer of that language with
+    -- E5108.  We catch it, warn once, and treat the language as unsupported
+    -- instead of breaking the user's editing session.
+    local ok, query = pcall(vim.treesitter.query.get, lang, "tsetter")
+    if not ok then
+        require("tree-setter.logger").warn(
+            string.format(
+                "query for %s failed to load; tree-setter disabled for it: %s",
+                lang, tostring(query)
+            )
+        )
+        return false
+    end
+    return query ~= nil
 end
 
 -- Coerce a user-provided `disabled_languages` value into the

@@ -73,6 +73,17 @@ function Setter.set_character(bufnr, line_num, end_column, character)
 		return
 	end
 
+	if trimmed:sub(-1) == "{" then
+		-- A line ending with `{` opens a block (function body, struct,
+		-- table, ...): a terminator right after `{` is always wrong, no
+		-- matter which character is requested.  This is what keeps the
+		-- function_definition query in queries/c/tsetter.scm safe -- it
+		-- captures the declarator of EVERY function_definition, and this
+		-- guard is what stops `bool f(int n) {` from turning into
+		-- `bool f(int n) {;`.
+		return
+	end
+
 	if next_character == ')' then
 		-- Captured node lives inside a closing paren (e.g. `i++` in a for-loop).
 		return

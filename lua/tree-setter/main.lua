@@ -20,6 +20,7 @@ local TreeSetter = {}
 -- `states[bufnr]` looks like this:
 --      {
 --          query = <the tsetter query for this buffer's language>,
+--          query_extra = <optional extra query (tsetter_extra.scm) or nil>,
 --          lang  = <string: the treesitter language name>,
 --          -- the number of lines the buffer had after we last processed a
 --          -- change. It's used to detect whether the *user* inserted a new
@@ -86,7 +87,15 @@ function TreeSetter.add_character(bufnr, state)
     end
     local user_row = vim.api.nvim_win_get_cursor(win_id)[1] - 2
 
-    local query = state.query
+    -- Iterate the base query AND the optional extra query (loaded in
+    -- attach() only when the installed grammar can parse it -- see
+    -- queries/c/tsetter_extra.scm).  Both feed the same capture-collection
+    -- logic below, so an @skip from either one still beats the other's
+    -- terminators on the same row.
+    local queries = { state.query }
+    if state.query_extra then
+        queries[2] = state.query_extra
+    end
 
     -- iterate through all matched queries, then dispatch the most-derived
     -- match per character_type.
@@ -115,68 +124,72 @@ function TreeSetter.add_character(bufnr, state)
 
     -- `match[id]` can be a single TSNode (newer nvim) OR a list of TSNodes
     -- (older nvim).  We dispatch both shapes to a uniform `process(node)`
-    -- closure so we don't crash on either build.
-    for _, match, _ in query:iter_matches(root_node, bufnr) do
-        for id, captured in pairs(match) do
-            local function process(node)
-                local start_row, _, end_row, end_col = node:range()
-                local capture_name = query.captures[id]
+    -- closure so we don't crash on either build.  The outer loop runs each
+    -- query in `queries`; `query.captures` inside resolves against the
+    -- per-iteration query so capture ids never cross wires.
+    for _, query in ipairs(queries) do
+        for _, match, _ in query:iter_matches(root_node, bufnr) do
+            for id, captured in pairs(match) do
+                local function process(node)
+                    local start_row, _, end_row, end_col = node:range()
+                    local capture_name = query.captures[id]
 
-                -- PRIMARY ROW FILTER (must be BEFORE the @skip check).
-                --
-                -- Only consider captures whose range overlaps the user's
-                -- pre-Enter row ± 1 window.  Putting this filter first
-                -- is critical: an `if (x) {` on row 5 must NOT short-
-                -- circuit the plugin when the user is editing something
-                -- 10 rows below.  Earlier versions of this code put
-                -- `@skip` first, which made any skip anywhere in the
-                -- buffer abort annotation globally -- the user's bug 2
-                -- "cursor far below an if with unterminated printf"
-                -- exposed this.
-                --
-                -- Also keeps bottommost-wins competition ENTER-WINDOW
-                -- ONLY: an out-of-window `int e` cannot out-rank an in-
-                -- window `int c` for the @semicolon slot in
-                -- `best_for_type`.
-                --
-                -- `user_row` is captured ONCE at the top of
-                -- `add_character` from the file-local cursor and stays
-                -- constant across all captures within this dispatch.
-                if end_row < user_row - 1 or start_row > user_row then
-                    return  -- out of window; silent nil (NOT "skip")
+                    -- PRIMARY ROW FILTER (must be BEFORE the @skip check).
+                    --
+                    -- Only consider captures whose range overlaps the user's
+                    -- pre-Enter row ± 1 window.  Putting this filter first
+                    -- is critical: an `if (x) {` on row 5 must NOT short-
+                    -- circuit the plugin when the user is editing something
+                    -- 10 rows below.  Earlier versions of this code put
+                    -- `@skip` first, which made any skip anywhere in the
+                    -- buffer abort annotation globally -- the user's bug 2
+                    -- "cursor far below an if with unterminated printf"
+                    -- exposed this.
+                    --
+                    -- Also keeps bottommost-wins competition ENTER-WINDOW
+                    -- ONLY: an out-of-window `int e` cannot out-rank an in-
+                    -- window `int c` for the @semicolon slot in
+                    -- `best_for_type`.
+                    --
+                    -- `user_row` is captured ONCE at the top of
+                    -- `add_character` from the file-local cursor and stays
+                    -- constant across all captures within this dispatch.
+                    if end_row < user_row - 1 or start_row > user_row then
+                        return  -- out of window; silent nil (NOT "skip")
+                    end
+
+                    -- `@skip` beats every other match on the SAME ROW.
+                    -- We record the row and continue processing so that
+                    -- ordering between iter_matches doesn't matter.  After
+                    -- the loop, any best_for_type entry that starts on a
+                    -- skip row is discarded.
+                    if capture_name == "skip" then
+                        skip_rows[start_row] = true
+                        return
+                    end
+
+                    -- Among same-name captures, keep the one furthest down (or
+                    -- rightmost on the same row).  Tuple comparison so nodes on
+                    -- different rows are ranked by row first, col second.
+                    local cur = best_for_type[capture_name]
+                    if not cur then
+                        best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
+                    elseif end_row > cur.end_row or (end_row == cur.end_row and end_col > cur.end_col) then
+                        best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
+                    end
                 end
 
-                -- `@skip` beats every other match on the SAME ROW.
-                -- We record the row and continue processing so that
-                -- ordering between iter_matches doesn't matter.  After
-                -- the loop, any best_for_type entry that starts on a
-                -- skip row is discarded.
-                if capture_name == "skip" then
-                    skip_rows[start_row] = true
-                    return
+                if type(captured) == "userdata" then
+                    -- Modern nvim: match[id] is a single TSNode.
+                    process(captured)
+                elseif type(captured) == "table" then
+                    -- Older nvim: match[id] is a list of TSNodes.
+                    for _, node in ipairs(captured) do
+                        process(node)
+                    end
                 end
-
-                -- Among same-name captures, keep the one furthest down (or
-                -- rightmost on the same row).  Tuple comparison so nodes on
-                -- different rows are ranked by row first, col second.
-                local cur = best_for_type[capture_name]
-                if not cur then
-                    best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
-                elseif end_row > cur.end_row or (end_row == cur.end_row and end_col > cur.end_col) then
-                    best_for_type[capture_name] = { node = node, start_row = start_row, end_row = end_row, end_col = end_col }
-                end
+                -- Anything else (number, string): silently skip; no capture to process.
             end
-
-            if type(captured) == "userdata" then
-                -- Modern nvim: match[id] is a single TSNode.
-                process(captured)
-            elseif type(captured) == "table" then
-                -- Older nvim: match[id] is a list of TSNodes.
-                for _, node in ipairs(captured) do
-                    process(node)
-                end
-            end
-            -- Anything else (number, string): silently skip; no capture to process.
         end
     end
 
@@ -305,14 +318,37 @@ function TreeSetter.attach(bufnr, lang)
         TreeSetter.detach(bufnr)
     end
 
-    local query = vim.treesitter.query.get(lang, "tsetter")
-    -- Languages without a query file mustn't break the plugin.
+    -- `query.get` raises when the query references a node type missing from
+    -- the installed grammar (e.g. an older tree-sitter-c lacking
+    -- `macro_type_specifier`).  Languages without a query file -- or whose
+    -- query can't be parsed -- mustn't break the plugin.
+    local ok, query = pcall(vim.treesitter.query.get, lang, "tsetter")
+    if not ok then
+        require("tree-setter.logger").warn(
+            string.format(
+                "query for %s failed to load; tree-setter disabled for it: %s",
+                lang, tostring(query)
+            )
+        )
+        return
+    end
     if not query then
         return
     end
 
+    -- Optional per-language EXTRA query (e.g. queries/c/tsetter_extra.scm),
+    -- kept in a separate file so a grammar-version mismatch (a node type the
+    -- installed grammar doesn't have) only disables that one extra pattern
+    -- instead of the whole language.  nil when the language ships no extra
+    -- file or when the installed grammar can't parse it -- never fatal.
+    local ok_extra, query_extra = pcall(vim.treesitter.query.get, lang, "tsetter_extra")
+    if not ok_extra then
+        query_extra = nil
+    end
+
     states[bufnr] = {
         query = query,
+        query_extra = query_extra,
         lang = lang,
         last_line_count = vim.api.nvim_buf_line_count(bufnr),
         applying = false,
