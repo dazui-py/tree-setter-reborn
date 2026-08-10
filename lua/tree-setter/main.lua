@@ -281,13 +281,33 @@ function TreeSetter.add_character(bufnr, state)
         -- For single-line captures end_row equals start_row, so this
         -- change is a no-op for the common case.
         --
+        -- Defense-in-depth (user-reported bug: semicolons landing on
+        -- unrelated `}`/`else` lines when many braces are around): error
+        -- recovery can extend a captured node PAST the row the user is
+        -- editing.  E.g. an unterminated `printf("x")` followed by a blank
+        -- line and an `else` merges into ONE ERROR node ending on the
+        -- `else` line -- placement would corrupt it.  The query layer pins
+        -- the known patterns to their inner node (see queries/c/tsetter.scm),
+        -- but we also clamp here so NO capture can ever place a terminator
+        -- on a row below `user_row` (the line the user just typed on; the
+        -- cursor sits on the new blank line right below it after <CR>).
+        --
         -- Single unpack of node:range() (4 ints: start_row, start_col,
         -- end_row, end_col). Subscripting the result of a function call
         -- (`entry.node:range()[1]`) is invalid in Lua: only the first
         -- multi-return value is taken and indexed, which crashes with
         -- `attempt to index a number value`. Always destructure.
         local _, _, node_end_row, char_end_col = entry.node:range()
-        setter.set_character(bufnr, node_end_row, char_end_col, char)
+        local target_row = math.max(0, math.min(node_end_row, user_row))
+        if target_row ~= node_end_row then
+            -- The node's real end column belongs to a different row than
+            -- the one we're clamping to; pass the clamped line's length so
+            -- the setter's `)`-guard sees end-of-line and can't misfire.
+            local target_line = vim.api.nvim_buf_get_lines(
+                bufnr, target_row, target_row + 1, false)[1] or ""
+            char_end_col = #target_line
+        end
+        setter.set_character(bufnr, target_row, char_end_col, char)
     end
 
     if best_for_type.comma then

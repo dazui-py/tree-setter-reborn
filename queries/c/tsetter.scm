@@ -46,6 +46,13 @@
 ;; Tree-sitter's error recovery may produce either a proper field_declaration
 ;; with a MISSING `;` or wrap it in an ERROR node, so we need both forms
 ;; (same dual-query pattern as call_expression below).
+;;
+;; IMPORTANT: in the ERROR form we capture the inner field_declaration, NOT
+;; the ERROR node itself.  Error recovery can merge the incomplete field with
+;; the lines below it into ONE multi-row ERROR (e.g. a struct member missing
+;; `;` followed by more members); capturing the ERROR would place `;` on its
+;; LAST row -- a line the user is not editing.  The inner node ends on the
+;; field's own row, which is what the plugin's row filter expects.
 (field_declaration
     type: (_)
     declarator: (_) @semicolon
@@ -55,8 +62,8 @@
     (field_declaration
         type: (_)
         declarator: (_)
-    )
-) @semicolon)
+    ) @semicolon)
+)
 
 ;; --------------
 ;; Functions
@@ -73,12 +80,18 @@
 ;;      }
 ;;
 ;; and open the TreeSitterPlayground afterwards ;)
+;;
+;; We capture the inner call_expression, NOT the ERROR node.  When an `else`
+;; (or any token that cannot continue the statement) follows an unterminated
+;; call, error recovery merges `call<blank>else` into ONE multi-row ERROR
+;; whose last row is the `else` line.  Capturing the ERROR would place `;`
+;; on the `else` line; the inner call_expression ends on the user's own row.
 ((ERROR
     (call_expression
         function: (identifier)
         arguments: (argument_list)
-    )
-) @semicolon)
+    ) @semicolon)
+)
 
 ;; This is used for known functions like
 ;;      printf("welp")
@@ -99,6 +112,10 @@
 ;;
 ;; Tree-sitter may wrap an incomplete case inside an ERROR node when the
 ;; enclosing switch block is unclosed, so we need both forms.
+;;
+;; As with the call_expression / field_declaration patterns above, the ERROR
+;; form captures the inner case_statement (not the whole ERROR): a merged
+;; multi-row ERROR would pin `:` to a row below the user's edit.
 ((case_statement
     value: (_)
 ) @double_points)
@@ -106,8 +123,8 @@
 ((ERROR
     (case_statement
         value: (_)
-    )
-) @double_points)
+    ) @double_points)
+)
 
 ;; -----------
 ;; Macros

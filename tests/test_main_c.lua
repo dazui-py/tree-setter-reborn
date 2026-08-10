@@ -397,6 +397,112 @@ run_multi("cursor mid-printf       + ; on printf, `}` intact",
   })
 
 -- =============================================================
+-- Regression: `else` swallowing (many `{`/`}` around).  When an
+-- unterminated `printf("x")` is followed by a blank line and an
+-- `else` (no braces), tree-sitter's error recovery merges all three
+-- rows into ONE ERROR node ending on the `else` line.  Pre-fix the
+-- `(ERROR (call_expression ...))` query captured that whole ERROR and
+-- the `;` landed on the `else` line.  Post-fix the query captures the
+-- inner call_expression (rows 2..2) and apply() clamps placement to
+-- the user's row, so `;` goes on the printf line and `else` stays
+-- untouched.
+-- =============================================================
+run_multi("  else w/o braces     ; on printf, else intact",
+  {
+    "int main() {",
+    "    if (a)",
+    "        printf(\"x\")",
+    "    else",
+    "        printf(\"y\")",
+    "}",
+  },
+  { { 3, "" } },                    -- Enter after printf (blank at 0-based row 3)
+  4,                                 -- cursor on 1-based line 4 (the post-Enter blank)
+  {
+    "int main() {",
+    "    if (a)",
+    "        printf(\"x\");",   -- got ;
+    "",                         -- post-Enter blank
+    "    else",                 -- else intact, NO ;
+    "        printf(\"y\")",
+    "}",
+  })
+
+run_multi("  else w/ braces      ; on printf, } else { intact",
+  {
+    "int main() {",
+    "    if (a) {",
+    "        printf(\"x\")",
+    "    } else {",
+    "        printf(\"y\")",
+    "    }",
+    "}",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "int main() {",
+    "    if (a) {",
+    "        printf(\"x\");",
+    "",
+    "    } else {",
+    "        printf(\"y\")",
+    "    }",
+    "}",
+  })
+
+run_multi("  deep nesting        ; on printf, all braces intact",
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        if (i > 5) {",
+    "            printf(\"%d\\n\", i)",
+    "        } else {",
+    "            printf(\"%d\\n\", -i)",
+    "        }",
+    "    }",
+    "}",
+  },
+  { { 4, "" } },                    -- Enter after the inner printf
+  5,                                 -- cursor on 1-based line 5
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        if (i > 5) {",
+    "            printf(\"%d\\n\", i);",
+    "",
+    "        } else {",
+    "            printf(\"%d\\n\", -i)",
+    "        }",
+    "    }",
+    "}",
+  })
+
+run_multi("  Enter far below     untouched",
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        if (i > 5) {",
+    "            printf(\"%d\\n\", i)",
+    "        }",
+    "    }",
+    "}",
+    "appendix;",
+  },
+  { { -1, "" } },                   -- Enter at the very bottom
+  8,                                 -- cursor on 1-based line 8
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        if (i > 5) {",
+    "            printf(\"%d\\n\", i)",   -- far below, untouched
+    "        }",
+    "    }",
+    "}",
+    "appendix;",
+  })
+
+-- =============================================================
 -- Regression: nested for/if/printf from tests/test.c.
 -- The user typed the nested block, then pressed Enter after `printf`.
 -- Pre-fix symptoms were (1) the printf line got `;;` instead of `;`,

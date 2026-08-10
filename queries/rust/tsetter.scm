@@ -18,6 +18,12 @@
 ;; Example:
 ;;      struct Point { x: i32 }
 ;;      struct Data { name: String }
+;;
+;; IMPORTANT: the ERROR form captures the inner field_declaration, NOT the
+;; ERROR node.  Error recovery can merge the incomplete field with the rows
+;; below it into one multi-row ERROR (e.g. a field missing `,` followed by
+;; more fields); capturing the ERROR would place `,` on its LAST row -- a
+;; line the user is not editing.  The inner node ends on the field's own row.
 (field_declaration
     name: (_)
     type: (_) @comma
@@ -27,8 +33,8 @@
     (field_declaration
         name: (_)
         type: (_)
-    )
-) @comma)
+    ) @comma)
+)
 
 ;; ==============
 ;; Functions
