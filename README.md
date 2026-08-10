@@ -118,11 +118,11 @@ Neovim, no need to copy back into a checkout or use`packadd`.
 
 ## Known limitations
 
-* Function prototypes returning a pointer-to-pointer-to-something
-  (`int ***foo()`, three or more levels of `*`) are not detected: tree-sitter
-  nests the signature one level deeper per `*`, and query patterns have no
-  "any descendant" operator, so each depth needs its own pattern branch.
-  Up to two levels (`int **foo()`) are covered.
+* Function prototypes returning a quadruple pointer or deeper
+  (`int ****foo()`) are not detected: tree-sitter nests the signature one
+  level deeper per `*`, and query patterns have no "any descendant"
+  operator, so each depth needs its own pattern branch. Up to three levels
+  (`int ***foo()`) are covered.
 
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)

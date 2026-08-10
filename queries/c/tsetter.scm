@@ -195,12 +195,12 @@
 ;; with `{` (see the `{` guard in lua/tree-setter/setter.lua): an opening
 ;; brace never wants `;`.
 ;;
-;; The declarator can be a bare function_declarator (`bool f(int n)`), a
-;; pointer_declarator wrapping one (`int *f(int n)`), or two nested
-;; pointer_declarators (`int **f(int n)`).  Queries have no "any descendant"
-;; operator, so each nesting depth needs its own branch.  Three or more
-;; levels of pointer indirection in a prototype are rare enough that they
-;; stay unsupported (documented in README.md).
+;; The declarator can be a bare function_declarator (`bool f(int n)`), or a
+;; pointer_declarator wrapping it one level per `*` (`int *f(int n)`,
+;; `int **f(int n)`, `int ***f(int n)`).  Queries have no "any descendant"
+;; operator, so each nesting depth needs its own branch; quadruple pointers
+;; and deeper in a prototype are effectively nonexistent, so we stop at
+;; three (documented in README.md).
 (function_definition
     declarator: (function_declarator
         parameters: (_) @semicolon
@@ -220,6 +220,18 @@
         (_
             (function_declarator
                 parameters: (_) @semicolon
+            )
+        )
+    )
+)
+
+(function_definition
+    declarator: (_
+        (_
+            (_
+                (function_declarator
+                    parameters: (_) @semicolon
+                )
             )
         )
     )

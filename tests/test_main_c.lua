@@ -238,6 +238,9 @@ run_scenario("int ***test()               + ;",
 run_scenario("int **test() {              unchanged",
               "int **test() {",
               "int **test() {")
+run_scenario("int ***test() {             unchanged",
+              "int ***test() {",
+              "int ***test() {")
 
 -- =============================================================
 -- Function prototypes typed ABOVE an already-existing function
@@ -286,15 +289,14 @@ run_multi("ptr-ptr proto above main     + ; on proto",
   2,
   { "int **test();", "", "int main() {", "    return 0;", "}" })
 
--- KNOWN LIMITATION (documented, not a bug): a THREE-level pointer prototype
--- typed above an existing definition (`int ***test()` + main()) needs a
--- fourth query branch (queries have no "any descendant" operator), so it
--- stays unchanged.  Two levels are covered.
-run_multi("ptr-ptr-ptr proto above main (limitation: unchanged)",
+-- Three-level pointer return (`int ***test()`) typed above an existing
+-- definition: covered by the fourth query branch (three nested pointer
+-- levels, see queries/c/tsetter.scm).
+run_multi("ptr-ptr-ptr proto above main + ; on proto",
   { "int ***test()", unpack(protomain) },
   { { 1, "" } },
   2,
-  { "int ***test()", "", "int main() {", "    return 0;", "}" })
+  { "int ***test();", "", "int main() {", "    return 0;", "}" })
 run_multi("unsigned proto above main    + ; on proto",
   { "unsigned int test()", unpack(protomain) },
   { { 1, "" } },
