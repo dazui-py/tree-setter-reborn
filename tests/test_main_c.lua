@@ -219,14 +219,25 @@ run_scenario("const char *test()         + ;",
               "const char *test()",
               "const char *test();")
 
--- KNOWN LIMITATION (documented, not a bug): pointer-to-pointer return
--- types (`int **test()`) are not captured.  Tree-sitter nests the
--- function_declarator two levels deep inside pointer_declarator nodes and
--- tree-sitter queries have no "descendant" operator, so no pattern reaches
--- it.  Asserted here so the behaviour is explicit rather than a surprise.
-run_scenario("int **test()  (known limitation: unchanged)",
+-- Pointer-to-pointer return types (`int **test()`): the function_declarator
+-- sits two pointer_declarator levels deep, which needs an extra pattern
+-- branch (see queries/c/tsetter.scm).  In the plain 2-line shape even
+-- `int ***test()` works because tree-sitter's error recovery collapses any
+-- pointer depth into a single wrapper.
+run_scenario("int **test()                + ;",
               "int **test()",
-              "int **test()")
+              "int **test();")
+run_scenario("const char **test()         + ;",
+              "const char **test()",
+              "const char **test();")
+run_scenario("int ***test()               + ;",
+              "int ***test()",
+              "int ***test();")
+-- Definition-with-brace variant of the new 2-level branch: the `{` guard in
+-- the setter must keep it untouched.
+run_scenario("int **test() {              unchanged",
+              "int **test() {",
+              "int **test() {")
 
 -- =============================================================
 -- Function prototypes typed ABOVE an already-existing function
@@ -269,6 +280,21 @@ run_multi("ptr proto above main         + ; on proto",
   { { 1, "" } },
   2,
   { "int *test();", "", "int main() {", "    return 0;", "}" })
+run_multi("ptr-ptr proto above main     + ; on proto",
+  { "int **test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int **test();", "", "int main() {", "    return 0;", "}" })
+
+-- KNOWN LIMITATION (documented, not a bug): a THREE-level pointer prototype
+-- typed above an existing definition (`int ***test()` + main()) needs a
+-- fourth query branch (queries have no "any descendant" operator), so it
+-- stays unchanged.  Two levels are covered.
+run_multi("ptr-ptr-ptr proto above main (limitation: unchanged)",
+  { "int ***test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int ***test()", "", "int main() {", "    return 0;", "}" })
 run_multi("unsigned proto above main    + ; on proto",
   { "unsigned int test()", unpack(protomain) },
   { { 1, "" } },

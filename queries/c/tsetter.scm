@@ -165,6 +165,19 @@
     ) @semicolon
 )
 
+;; Pointer-wrapped variant: `int **test()` (and deeper) parse with the
+;; function_declarator nested under pointer_declarator node(s).  Tree-sitter's
+;; error recovery collapses ANY pointer depth into a single wrapper here, so
+;; one extra `_` level covers them all in this shape.
+(ERROR
+    (_
+        (function_declarator
+            declarator: (_)
+            parameters: (_)
+        ) @semicolon
+    )
+)
+
 ;; Function definitions: capture the DECLARATOR'S PARAMETER LIST so a
 ;; prototype typed ABOVE an already-existing definition still gets `;`.
 ;; Tree-sitter merges
@@ -182,8 +195,12 @@
 ;; with `{` (see the `{` guard in lua/tree-setter/setter.lua): an opening
 ;; brace never wants `;`.
 ;;
-;; Two shapes are needed: the declarator can be a bare function_declarator
-;; (`bool f(int n)`) or a pointer_declarator wrapping one (`int *f(int n)`).
+;; The declarator can be a bare function_declarator (`bool f(int n)`), a
+;; pointer_declarator wrapping one (`int *f(int n)`), or two nested
+;; pointer_declarators (`int **f(int n)`).  Queries have no "any descendant"
+;; operator, so each nesting depth needs its own branch.  Three or more
+;; levels of pointer indirection in a prototype are rare enough that they
+;; stay unsupported (documented in README.md).
 (function_definition
     declarator: (function_declarator
         parameters: (_) @semicolon
@@ -194,6 +211,16 @@
     declarator: (_
         (function_declarator
             parameters: (_) @semicolon
+        )
+    )
+)
+
+(function_definition
+    declarator: (_
+        (_
+            (function_declarator
+                parameters: (_) @semicolon
+            )
         )
     )
 )

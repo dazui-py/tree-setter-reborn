@@ -118,10 +118,11 @@ Neovim, no need to copy back into a checkout or use`packadd`.
 
 ## Known limitations
 
-* Function prototypes with pointer-to-pointer return types (`int **foo()`) are
-  not detected: tree-sitter nests the signature two levels deep and query
-  patterns have no "any descendant" operator. Primitive, struct, typedef and
-  single-pointer return types are all covered.
+* Function prototypes returning a pointer-to-pointer-to-something
+  (`int ***foo()`, three or more levels of `*`) are not detected: tree-sitter
+  nests the signature one level deeper per `*`, and query patterns have no
+  "any descendant" operator, so each depth needs its own pattern branch.
+  Up to two levels (`int **foo()`) are covered.
 
 # Contributing
 Take a look into the [CONTRIBUTING.md](./CONTRIBUTING.md) file for that ;)
