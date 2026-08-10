@@ -503,6 +503,259 @@ run_multi("  Enter far below     untouched",
   })
 
 -- =============================================================
+-- Regression: deeply nested `{`/`}` (the user's report: "with many
+-- braces around, semicolons land on unrelated lines").  These pin
+-- that the terminator goes ONLY on the user's own line, no matter
+-- how deep the nesting is.
+-- =============================================================
+run_multi("  if x4 deep        ; on printf, 4x } intact",
+  {
+    "int main() {",
+    "    if (a) {",
+    "        if (b) {",
+    "            if (c) {",
+    "                if (d) {",
+    "                    printf(\"deep\")",
+    "                }",
+    "            }",
+    "        }",
+    "    }",
+    "}",
+  },
+  { { 6, "" } },                    -- Enter after printf (0-based row 6)
+  7,                                 -- cursor on 1-based line 7
+  {
+    "int main() {",
+    "    if (a) {",
+    "        if (b) {",
+    "            if (c) {",
+    "                if (d) {",
+    "                    printf(\"deep\");",
+    "",
+    "                }",
+    "            }",
+    "        }",
+    "    }",
+    "}",
+  })
+
+run_multi("  for+while+do      ; on printf, braces intact",
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        while (x) {",
+    "            do {",
+    "                printf(\"x\")",
+    "            } while (y);",
+    "        }",
+    "    }",
+    "}",
+  },
+  { { 5, "" } },
+  6,
+  {
+    "int main() {",
+    "    for (int i = 0; i < 10; i++) {",
+    "        while (x) {",
+    "            do {",
+    "                printf(\"x\");",
+    "",
+    "            } while (y);",
+    "        }",
+    "    }",
+    "}",
+  })
+
+run_multi("  if/else chain     ; on printf, else intact",
+  {
+    "int main() {",
+    "    if (a) {",
+    "        printf(\"a\")",
+    "    } else if (b) {",
+    "        printf(\"b\")",
+    "    } else {",
+    "        printf(\"c\")",
+    "    }",
+    "}",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "int main() {",
+    "    if (a) {",
+    "        printf(\"a\");",
+    "",
+    "    } else if (b) {",
+    "        printf(\"b\")",
+    "    } else {",
+    "        printf(\"c\")",
+    "    }",
+    "}",
+  })
+
+-- =============================================================
+-- Nested structs / unions: members deep inside get `;`, and every
+-- `}` stays untouched.
+-- =============================================================
+run_multi("  struct in struct  ; on int x, braces intact",
+  {
+    "struct Outer {",
+    "    struct Inner {",
+    "        int x",
+    "    };",
+    "};",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "struct Outer {",
+    "    struct Inner {",
+    "        int x;",
+    "",
+    "    };",
+    "};",
+  })
+
+run_multi("  union in struct   ; on int y, braces intact",
+  {
+    "struct S {",
+    "    union U {",
+    "        int y",
+    "    };",
+    "    float f;",
+    "};",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "struct S {",
+    "    union U {",
+    "        int y;",
+    "",
+    "    };",
+    "    float f;",
+    "};",
+  })
+
+run_multi("  anon struct       ; on int z, braces intact",
+  {
+    "struct S {",
+    "    struct {",
+    "        int z",
+    "    };",
+    "};",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "struct S {",
+    "    struct {",
+    "        int z;",
+    "",
+    "    };",
+    "};",
+  })
+
+-- =============================================================
+-- Nested initializer lists: the LAST element gets `,` (not `;`),
+-- and all braces stay intact.  Covers both the realistic top-down
+-- typing (list not closed yet -> ERROR-wrapped) and the
+-- retrospective edit (}; already present -> proper initializer_list).
+-- =============================================================
+run_multi("  2D array unclosed ; , on last elem",
+  {
+    "int m[2][2] = {",
+    "    { 1, 2 },",
+    "    { 3, 4 }",
+  },
+  { { -1, "" } },                -- Enter at end (append blank)
+  4,
+  {
+    "int m[2][2] = {",
+    "    { 1, 2 },",
+    "    { 3, 4 },",
+    "",
+  })
+
+run_multi("  2D array closed   ; , on last elem, };",
+  {
+    "int m[2][2] = {",
+    "    { 1, 2 },",
+    "    { 3, 4 }",
+    "};",
+  },
+  { { 3, "" } },                -- Enter after `{ 3, 4 }` (0-based row 3)
+  4,
+  {
+    "int m[2][2] = {",
+    "    { 1, 2 },",
+    "    { 3, 4 },",
+    "",
+    "};",
+  })
+
+run_multi("  struct init unclosed ; , on last pair",
+  {
+    "struct Point p = {",
+    "    .x = 1,",
+    "    .y = 2",
+  },
+  { { -1, "" } },
+  4,
+  {
+    "struct Point p = {",
+    "    .x = 1,",
+    "    .y = 2,",
+    "",
+  })
+
+run_multi("  struct init closed ; , on last pair, };",
+  {
+    "struct Point p = {",
+    "    .x = 1,",
+    "    .y = 2",
+    "};",
+  },
+  { { 3, "" } },
+  4,
+  {
+    "struct Point p = {",
+    "    .x = 1,",
+    "    .y = 2,",
+    "",
+    "};",
+  })
+
+-- Guards: single-line closed initializer still gets `;` (not `,`),
+-- and unterminated expressions outside initializers stay untouched.
+run_multi("  single-line init  ; gets ; not ,",
+  { "int x = { 1, 2, 3 }" },
+  { { -1, "" } },
+  2,
+  {
+    "int x = { 1, 2, 3 };",
+    "",
+  })
+
+run_multi("  int x = 5 +       ; untouched",
+  { "int x = 5 +" },
+  { { -1, "" } },
+  2,
+  {
+    "int x = 5 +",
+    "",
+  })
+
+run_multi("  foo(              ; untouched",
+  { "foo(" },
+  { { -1, "" } },
+  2,
+  {
+    "foo(",
+    "",
+  })
+
+-- =============================================================
 -- Regression: nested for/if/printf from tests/test.c.
 -- The user typed the nested block, then pressed Enter after `printf`.
 -- Pre-fix symptoms were (1) the printf line got `;;` instead of `;`,

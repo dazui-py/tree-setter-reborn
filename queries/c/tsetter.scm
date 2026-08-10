@@ -66,6 +66,54 @@
 )
 
 ;; --------------
+;; Initializer lists (arrays, structs, unions)
+;; --------------
+;; When the user is typing a multi-line initializer list top-down (the
+;; closing `};` doesn't exist yet), tree-sitter wraps the whole thing in an
+;; ERROR node.  The elements end up as direct children of that ERROR:
+;;
+;;      int m[2][2] = {     <- ERROR
+;;          { 1, 2 },
+;;          { 3, 4 }        <- cursor; user pressed <CR> here
+;;
+;; We add `,` to the LAST element (bottommost-wins in the plugin picks the
+;; lowest in-window capture) so the user can keep typing rows, matching what
+;; the Python query does for lists/dicts and the Rust query for struct
+;; fields.
+;;
+;; The captures are the inner initializer_list (nested `{ ... }` elements
+;; like the `{ 1, 2 }` rows above) and initializer_pair (designated
+;; initializers like `.x = 1`).  Both node types only exist inside an
+;; initializer context, so these patterns can NEVER fire on unrelated ERROR
+;; nodes (e.g. `int x = 5 +` or an unterminated `foo(`).  A single-line
+;; closed initializer (`int x = { 1, 2, 3 }` + <CR>) parses as a proper
+;; declaration -- no ERROR -- so it keeps getting `;` from the declaration
+;; query above.
+((ERROR
+    (initializer_list) @comma
+)
+)
+
+((ERROR
+    (initializer_pair) @comma
+)
+)
+
+;; Closed-list variant: when the `};` is ALREADY typed (retrospective edit,
+;; e.g. the user goes back up to insert another row), the list parses as a
+;; proper initializer_list (no ERROR).  Capture the inner initializer_list /
+;; initializer_pair elements the same way.  A single-line closed initializer
+;; (`int x = { 1, 2, 3 }`) has bare number_literal children -- they match
+;; NEITHER pattern, so it keeps getting `;` from the declaration query.
+(initializer_list
+    (initializer_list) @comma
+)
+
+(initializer_list
+    (initializer_pair) @comma
+)
+
+;; --------------
 ;; Functions
 ;; --------------
 ;; This query is mainly used for custom function-calls

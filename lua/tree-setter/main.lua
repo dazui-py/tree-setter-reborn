@@ -282,15 +282,24 @@ function TreeSetter.add_character(bufnr, state)
         -- change is a no-op for the common case.
         --
         -- Defense-in-depth (user-reported bug: semicolons landing on
-        -- unrelated `}`/`else` lines when many braces are around): error
-        -- recovery can extend a captured node PAST the row the user is
-        -- editing.  E.g. an unterminated `printf("x")` followed by a blank
-        -- line and an `else` merges into ONE ERROR node ending on the
-        -- `else` line -- placement would corrupt it.  The query layer pins
-        -- the known patterns to their inner node (see queries/c/tsetter.scm),
-        -- but we also clamp here so NO capture can ever place a terminator
-        -- on a row below `user_row` (the line the user just typed on; the
-        -- cursor sits on the new blank line right below it after <CR>).
+        -- unrelated `}`/`else` lines when many braces are around): never
+        -- place a terminator on a row BELOW `user_row` (the line the user
+        -- just typed on; the cursor sits on the new blank line right below
+        -- it after <CR>).  When a captured node ENDS below user_row, the
+        -- user is editing in the MIDDLE of a construct the grammar still
+        -- extends -- e.g. a multi-line initializer list that isn't closed
+        -- yet:
+        --
+        --      int m[2][2] = {
+        --          { 1, 2 },
+        --          { 3, 4 }     <- cursor; user pressed <CR> here
+        --
+        -- The init_declarator capture spans rows 0..4; dropping `;` on
+        -- row 2 would corrupt the list.  The query layer already pins the
+        -- known ERROR-merge patterns to their inner node (which ends on
+        -- the user's own row -- see queries/c/tsetter.scm), so any capture
+        -- that still ends below user_row is exactly this mid-construct
+        -- case and must be skipped, not clamped.
         --
         -- Single unpack of node:range() (4 ints: start_row, start_col,
         -- end_row, end_col). Subscripting the result of a function call
@@ -298,16 +307,10 @@ function TreeSetter.add_character(bufnr, state)
         -- multi-return value is taken and indexed, which crashes with
         -- `attempt to index a number value`. Always destructure.
         local _, _, node_end_row, char_end_col = entry.node:range()
-        local target_row = math.max(0, math.min(node_end_row, user_row))
-        if target_row ~= node_end_row then
-            -- The node's real end column belongs to a different row than
-            -- the one we're clamping to; pass the clamped line's length so
-            -- the setter's `)`-guard sees end-of-line and can't misfire.
-            local target_line = vim.api.nvim_buf_get_lines(
-                bufnr, target_row, target_row + 1, false)[1] or ""
-            char_end_col = #target_line
+        if node_end_row > user_row then
+            return  -- mid-construct edit; no terminator belongs here
         end
-        setter.set_character(bufnr, target_row, char_end_col, char)
+        setter.set_character(bufnr, node_end_row, char_end_col, char)
     end
 
     if best_for_type.comma then
