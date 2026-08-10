@@ -178,63 +178,27 @@
     )
 )
 
-;; Function definitions: capture the DECLARATOR'S PARAMETER LIST so a
-;; prototype typed ABOVE an already-existing definition still gets `;`.
-;; Tree-sitter merges
+;; Function definitions: capture the DECLARATOR so a prototype typed ABOVE
+;; an already-existing definition still gets `;`.  Tree-sitter merges
 ;;
 ;;      bool isPrime(int n)
 ;;      int main() { ... }
 ;;
-;; into ONE function_definition whose declarator swallows rows 0..2.  The
-;; only node that reliably ENDS on the prototype's own row is its
-;; parameter_list, so we anchor the capture there (the setter places `;` at
-;; the end of the capture's last row).
+;; into ONE function_definition whose declarator swallows rows 0..2, and the
+;; declarator can be a function_declarator or a pointer_declarator chain of
+;; ANY depth (`int *f()`, `int **f()`, `int ***f()`, ...).  Queries have no
+;; "any descendant" operator, so instead of enumerating pointer depths we
+;; capture the declarator with a dedicated @func_decl name and let the plugin
+;; resolve the innermost parameter_list in Lua (resolve_func_decl() in
+;; lua/tree-setter/main.lua).  That parameter_list is the node that reliably
+;; ENDS on the prototype's own row, so the setter places `;` there.
 ;;
 ;; The `bool isPrime(int n) {` regression test in tests/test_main_c.lua stays
 ;; green because the setter refuses to terminate a line that already ends
 ;; with `{` (see the `{` guard in lua/tree-setter/setter.lua): an opening
 ;; brace never wants `;`.
-;;
-;; The declarator can be a bare function_declarator (`bool f(int n)`), or a
-;; pointer_declarator wrapping it one level per `*` (`int *f(int n)`,
-;; `int **f(int n)`, `int ***f(int n)`).  Queries have no "any descendant"
-;; operator, so each nesting depth needs its own branch; quadruple pointers
-;; and deeper in a prototype are effectively nonexistent, so we stop at
-;; three (documented in README.md).
 (function_definition
-    declarator: (function_declarator
-        parameters: (_) @semicolon
-    )
-)
-
-(function_definition
-    declarator: (_
-        (function_declarator
-            parameters: (_) @semicolon
-        )
-    )
-)
-
-(function_definition
-    declarator: (_
-        (_
-            (function_declarator
-                parameters: (_) @semicolon
-            )
-        )
-    )
-)
-
-(function_definition
-    declarator: (_
-        (_
-            (_
-                (function_declarator
-                    parameters: (_) @semicolon
-                )
-            )
-        )
-    )
+    declarator: (_) @func_decl
 )
 
 ;; ==========

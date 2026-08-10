@@ -34,6 +34,29 @@ local TreeSetter = {}
 --      }
 local states = {}
 
+-- Resolve a function_definition's declarator to its innermost
+-- parameter_list (used by the @func_decl capture, see queries/c/tsetter.scm).
+-- The declarator is either a function_declarator or a pointer_declarator
+-- chain wrapping one (one level per `*`); we walk the `declarator:` fields
+-- until we reach the function_declarator and return its `parameters` child.
+-- Returns nil when the declarator has no parameter list (e.g. error recovery
+-- produced a bare declarator) -- callers skip the capture then.
+local function resolve_func_decl(declarator)
+    local node = declarator
+    while node do
+        if node:type() == "function_declarator" then
+            local params = node:field("parameters")
+            if params and params[1] then
+                return params[1]
+            end
+            return nil
+        end
+        local nested = node:field("declarator")
+        node = nested and nested[1] or nil
+    end
+    return nil
+end
+
 -- ==============
 -- Functions
 -- ==============
@@ -133,6 +156,32 @@ function TreeSetter.add_character(bufnr, state)
                 local function process(node)
                     local start_row, _, end_row, end_col = node:range()
                     local capture_name = query.captures[id]
+
+                    -- `@func_decl` (queries/c/tsetter.scm) marks a
+                    -- function_definition's declarator.  Pointer return
+                    -- types nest the signature one pointer_declarator level
+                    -- per `*`, which a query cannot express at arbitrary
+                    -- depth, so we resolve the innermost parameter_list in
+                    -- Lua instead.  That parameter_list is what reliably
+                    -- ENDS on the prototype's own row (the declarator
+                    -- itself can swallow the rows of a following definition
+                    -- during error recovery).  Re-labelling it as @semicolon
+                    -- lets every downstream step (row filter, @skip,
+                    -- bottommost-wins, placement) work unchanged.
+                    if capture_name == "func_decl" then
+                        local anchor = resolve_func_decl(node)
+                        if not anchor then
+                            return
+                        end
+                        node = anchor
+                        capture_name = "semicolon"
+                        -- The resolved parameter_list's own range must be
+                        -- used from here on: the wrapper declarator can span
+                        -- multiple rows (the typed-later merge), and letting
+                        -- its range reach the row filter / bottommost ranking
+                        -- would annotate lines well above the user's edit.
+                        start_row, _, end_row, end_col = node:range()
+                    end
 
                     -- PRIMARY ROW FILTER (must be BEFORE the @skip check).
                     --

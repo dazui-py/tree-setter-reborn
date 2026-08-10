@@ -219,11 +219,11 @@ run_scenario("const char *test()         + ;",
               "const char *test()",
               "const char *test();")
 
--- Pointer-to-pointer return types (`int **test()`): the function_declarator
--- sits two pointer_declarator levels deep, which needs an extra pattern
--- branch (see queries/c/tsetter.scm).  In the plain 2-line shape even
--- `int ***test()` works because tree-sitter's error recovery collapses any
--- pointer depth into a single wrapper.
+-- Pointer return types: the signature nests one pointer_declarator level
+-- per `*`.  The plugin resolves ANY depth in Lua (resolve_func_decl() in
+-- lua/tree-setter/main.lua) instead of enumerating query branches.  In the
+-- plain 2-line shape tree-sitter's error recovery also collapses any
+-- pointer depth into a single ERROR wrapper, so these all work.
 run_scenario("int **test()                + ;",
               "int **test()",
               "int **test();")
@@ -233,6 +233,9 @@ run_scenario("const char **test()         + ;",
 run_scenario("int ***test()               + ;",
               "int ***test()",
               "int ***test();")
+run_scenario("int ****test()              + ;",
+              "int ****test()",
+              "int ****test();")
 -- Definition-with-brace variant of the new 2-level branch: the `{` guard in
 -- the setter must keep it untouched.
 run_scenario("int **test() {              unchanged",
@@ -289,14 +292,30 @@ run_multi("ptr-ptr proto above main     + ; on proto",
   2,
   { "int **test();", "", "int main() {", "    return 0;", "}" })
 
--- Three-level pointer return (`int ***test()`) typed above an existing
--- definition: covered by the fourth query branch (three nested pointer
--- levels, see queries/c/tsetter.scm).
+-- Pointer return types typed above an existing definition: the @func_decl
+-- query capture is resolved to the innermost parameter_list in Lua, so ANY
+-- pointer depth works here too (no per-depth query branches needed).
 run_multi("ptr-ptr-ptr proto above main + ; on proto",
   { "int ***test()", unpack(protomain) },
   { { 1, "" } },
   2,
   { "int ***test();", "", "int main() {", "    return 0;", "}" })
+run_multi("ptr^4 proto above main       + ; on proto (any depth)",
+  { "int ****test()", unpack(protomain) },
+  { { 1, "" } },
+  2,
+  { "int ****test();", "", "int main() {", "    return 0;", "}" })
+
+-- Regression (code review): an unterminated parameterized proto sitting
+-- ABOVE a definition must NOT be annotated when the user presses Enter on a
+-- LOWER line.  During the merge the @func_decl wrapper declarator spans
+-- rows 0..2; the resolved parameter_list's OWN range (row 0) is what must
+-- reach the row filter, otherwise `;` would land two rows above the edit.
+run_multi("Enter on main() line  proto above stays unchanged",
+  { "bool isPrime(int n)", "", "int main() {" },
+  { { -1, "" } },        -- Enter at the end of `int main() {` (append blank)
+  4,                     -- cursor on 1-based line 4 (the new blank)
+  { "bool isPrime(int n)", "", "int main() {", "" })
 run_multi("unsigned proto above main    + ; on proto",
   { "unsigned int test()", unpack(protomain) },
   { { 1, "" } },
